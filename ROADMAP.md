@@ -53,7 +53,7 @@ screenshot,screen recording,brightness,warmth,menu bar,snip,OCR,hotkey
 
 Menu bar utility. Screen Recording is for screenshots, window capture, text recognition, and area recording. The microphone is used only when Record microphone is on. Location is used only when the daytime curve follows sunrise and sunset. No account is required. Click the menu bar icon, take an area snip, and move the brightness slider. Film Mode dims external displays and restores them when it is turned off or the app quits.
 
-Upload again only if build 5 is missing. Use release Xcode (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`), not the beta. Commands are in `docs/PUBLISHING.md`. The App Store configuration’s version is 1.0; the GitHub Release configuration is 1.0.7.
+Upload again only if build 5 is missing. Use release Xcode (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`), not the beta. Commands are in `docs/PUBLISHING.md`. The App Store configuration’s version is 1.0; the GitHub Release configuration is 1.0.8.
 
 ## Decisions
 - Localhost-only personal tool — no cloud backend

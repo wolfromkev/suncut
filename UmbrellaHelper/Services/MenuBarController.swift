@@ -30,10 +30,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         self.appModel = appModel
 
         let center = NotificationCenter.default
+        // Deliver on the posting thread. queue: .main runs later, after the snip
+        // overlay has already forced this popover to the top of the screen.
         dismissObserver = center.addObserver(
             forName: .umbrellaDismissMenuBarPopover,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.hidePopoverImmediately()
@@ -42,7 +44,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         captureBeganObserver = center.addObserver(
             forName: .umbrellaCaptureChromeBegan,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.beginCaptureChrome()
@@ -51,10 +53,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         captureEndedObserver = center.addObserver(
             forName: .umbrellaCaptureChromeEnded,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.captureChromeActive = false
+                self?.endCaptureChrome()
             }
         }
         resignActiveObserver = center.addObserver(
@@ -180,8 +182,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             hosting.rootView = makeControlsView(appModel: appModel)
         }
 
+        popover.behavior = .transient
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.level = .popUpMenu
+        if let window = popover.contentViewController?.view.window {
+            window.alphaValue = 1
+            window.ignoresMouseEvents = false
+            window.level = .popUpMenu
+        }
         button.isHighlighted = true
         NSApp.activate(ignoringOtherApps: true)
         startOutsideClickMonitoring()
@@ -205,28 +212,31 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
     }
 
+    private func endCaptureChrome() {
+        captureChromeActive = false
+        popover?.behavior = .transient
+    }
+
     private func hidePopover(animated: Bool) {
         stopOutsideClickMonitoring()
-        guard let popover else {
-            statusItem?.button?.isHighlighted = false
-            return
-        }
+        statusItem?.button?.isHighlighted = false
+        guard let popover else { return }
 
         let wasAnimating = popover.animates
-        if !animated {
-            popover.animates = false
-        }
+        popover.animates = false
+        // Leave the window level alone. Changing it detaches the popover and AppKit parks it at the top of the screen.
         if let window = popover.contentViewController?.view.window {
-            window.level = .normal
+            window.alphaValue = 0
+            window.ignoresMouseEvents = true
             window.orderOut(nil)
         }
         if popover.isShown {
             popover.performClose(nil)
         }
-        if !animated {
-            popover.animates = wasAnimating
+        if captureChromeActive {
+            popover.behavior = .applicationDefined
         }
-        statusItem?.button?.isHighlighted = false
+        popover.animates = animated || wasAnimating
     }
 
     private func makeControlsView(appModel: AppModel) -> MenuBarControlsView {

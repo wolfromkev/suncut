@@ -992,12 +992,17 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         }
         if permissionGateTask != nil { return }
 
-        NotificationCenter.default.post(name: .umbrellaDismissMenuBarPopover, object: nil)
+        // Close the menu before the permission task yields. A later close lets AppKit
+        // detach the popover and park it at the top of the screen.
+        noteCaptureChromeBegan()
 
         permissionGateTask = Task { @MainActor in
             defer { self.permissionGateTask = nil }
             let screenGranted = self.resolveScreenCaptureAccess()
-            if Task.isCancelled { return }
+            if Task.isCancelled {
+                self.noteCaptureChromeEnded()
+                return
+            }
 
             var missing = Set<SnipPermission>()
             if !screenGranted {
@@ -1011,7 +1016,10 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                     self.microphoneState = .allowed
                 case .notDetermined where screenGranted:
                     let granted = await self.ensureMicrophoneAccessAsync(notifyOnDenial: false)
-                    if Task.isCancelled { return }
+                    if Task.isCancelled {
+                        self.noteCaptureChromeEnded()
+                        return
+                    }
                     if !granted {
                         missing.insert(.microphone)
                     }
@@ -1032,6 +1040,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 return
             }
 
+            self.noteCaptureChromeEnded()
             let skipMicrophone: (() -> Void)? = (
                 allowSkipMicrophone
                     && missing.contains(.microphone)
@@ -1523,138 +1532,25 @@ enum UmbrellaRecordingSoundFeedback {
 }
 
 enum UmbrellaSnipSoundFeedback {
-    private static var shutterSound: NSSound?
-    private static var paperSound: NSSound?
+    private static let purr: NSSound? = {
+        let sound = NSSound(named: NSSound.Name("Purr"))
+        sound?.volume = 0.9
+        return sound
+    }()
 
     static func playScreenshot() {
-        play(cached: &shutterSound, samples: shutterSamples())
+        playPurr()
     }
 
     static func playTextCopy() {
-        play(cached: &paperSound, samples: paperSamples())
+        playPurr()
     }
 
-    private static func play(cached: inout NSSound?, samples: [Float]) {
-        if cached == nil {
-            cached = NSSound(data: wavData(samples: samples))
-            cached?.volume = 0.9
-        }
-        guard let sound = cached else { return }
-        sound.stop()
-        sound.currentTime = 0
-        sound.play()
-    }
-
-    /// Two noise clicks plus a short body thump, about a camera shutter.
-    private static func shutterSamples() -> [Float] {
-        let rate = 44_100.0
-        let count = Int(rate * 0.16)
-        var samples = [Float](repeating: 0, count: count)
-        var rng: UInt64 = 0xA5A5_1234
-
-        func burst(at start: Double, length: Double, amplitude: Float, cutoff: Double) {
-            var low = 0.0
-            let startIndex = Int(start * rate)
-            let lengthCount = Int(length * rate)
-            for index in 0..<lengthCount {
-                let sampleIndex = startIndex + index
-                guard sampleIndex < count else { break }
-                let progress = Double(index) / Double(lengthCount)
-                let envelope = Float(pow(1 - progress, 2.2)) * amplitude
-                rng = rng &* 6_364_136_223_846_793_005 &+ 1
-                let white = Double(Int32(truncatingIfNeeded: rng >> 33)) / Double(Int32.max)
-                low += (white - low) * cutoff
-                samples[sampleIndex] += envelope * Float(white - low)
-            }
-        }
-
-        burst(at: 0, length: 0.016, amplitude: 1, cutoff: 0.42)
-        burst(at: 0.03, length: 0.042, amplitude: 0.82, cutoff: 0.2)
-        let thumpStart = Int(0.032 * rate)
-        for index in 0..<Int(0.07 * rate) {
-            let sampleIndex = thumpStart + index
-            guard sampleIndex < count else { break }
-            let time = Double(index) / rate
-            let envelope = Float(exp(-time * 58))
-            samples[sampleIndex] += envelope * 0.4 * Float(sin(2 * .pi * 130 * time))
-        }
-        return normalized(samples, peak: 0.78)
-    }
-
-    /// A few overlapping high-passed noise bursts, about paper sliding.
-    private static func paperSamples() -> [Float] {
-        let rate = 44_100.0
-        let count = Int(rate * 0.4)
-        var samples = [Float](repeating: 0, count: count)
-        var rng: UInt64 = 0x5A11_7E11
-        var low = 0.0
-        let rustles: [(start: Double, length: Double, amplitude: Float)] = [
-            (0.00, 0.09, 0.65),
-            (0.055, 0.12, 0.9),
-            (0.15, 0.1, 0.72),
-            (0.23, 0.14, 1),
-            (0.33, 0.07, 0.5),
-        ]
-
-        for index in 0..<count {
-            let time = Double(index) / rate
-            rng = rng &* 6_364_136_223_846_793_005 &+ 1
-            let white = Double(Int32(truncatingIfNeeded: rng >> 33)) / Double(Int32.max)
-            low += (white - low) * 0.2
-            var envelope: Float = 0
-            for rustle in rustles {
-                let progress = (time - rustle.start) / rustle.length
-                if progress > 0, progress < 1 {
-                    let grain = sin(progress * .pi)
-                    let flutter = 0.62 + 0.38 * sin(progress * 26 * .pi)
-                    envelope += Float(grain * flutter) * rustle.amplitude
-                }
-            }
-            samples[index] = Float(white - low) * envelope
-        }
-        return normalized(samples, peak: 0.55)
-    }
-
-    private static func normalized(_ samples: [Float], peak: Float) -> [Float] {
-        let maxAmplitude = samples.map { abs($0) }.max() ?? 0
-        guard maxAmplitude > 0.000_1 else { return samples }
-        let gain = peak / maxAmplitude
-        return samples.map { $0 * gain }
-    }
-
-    private static func wavData(samples: [Float]) -> Data {
-        let sampleRate: UInt32 = 44_100
-        let channels: UInt16 = 1
-        let bitsPerSample: UInt16 = 16
-        let dataSize = UInt32(samples.count * MemoryLayout<Int16>.size)
-        var data = Data()
-
-        func append(_ string: String) {
-            data.append(contentsOf: string.utf8)
-        }
-        func append<T: FixedWidthInteger>(_ value: T) {
-            var littleEndian = value.littleEndian
-            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
-        }
-
-        append("RIFF")
-        append(UInt32(36) + dataSize)
-        append("WAVE")
-        append("fmt ")
-        append(UInt32(16))
-        append(UInt16(1))
-        append(channels)
-        append(sampleRate)
-        append(sampleRate * UInt32(channels) * UInt32(bitsPerSample) / 8)
-        append(channels * bitsPerSample / 8)
-        append(bitsPerSample)
-        append("data")
-        append(dataSize)
-        for sample in samples {
-            let clamped = max(-1, min(1, sample))
-            append(Int16(clamped * 32_767))
-        }
-        return data
+    private static func playPurr() {
+        guard let purr else { return }
+        purr.stop()
+        purr.currentTime = 0
+        purr.play()
     }
 }
 
