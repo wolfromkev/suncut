@@ -1593,7 +1593,7 @@ final class UmbrellaAreaSelectionOverlay {
         allowsTextCopy: Bool = false,
         initialTextCopy: Bool = false,
         textCopyKeyCode: UInt16 = UInt16(kVK_Tab),
-        completionDelay: TimeInterval = 0.12,
+        completionDelay: TimeInterval = 0,
         primaryTitle: String = "Screenshot",
         primaryColor: NSColor = .systemCyan,
         textCopyColor: NSColor = .systemGreen,
@@ -1784,8 +1784,8 @@ final class UmbrellaAreaSelectionOverlay {
                 completion(selection, copyText)
             }
         }
-        // Screenshots keep a short delay so overlay pixels are gone before capture.
-        // Recording uses completionDelay=0 (overlays are sharingType=.none).
+        // The veil uses sharingType=.none, so capture can start on mouse-up.
+        // orderOut stays on the next turn; closing inside this tracking callback frees windows AppKit still holds.
         if delay <= 0 {
             invoke()
         } else {
@@ -2045,7 +2045,8 @@ final class UmbrellaWindowSelectionOverlay {
 
         let completion = onComplete
         let cancellation = onCancel
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+        // Leave mouseDown before releasing this overlay. The next turn is still the click.
+        DispatchQueue.main.async {
             if cancelled {
                 cancellation()
             } else {
