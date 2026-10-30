@@ -228,9 +228,13 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
     }
 
     private func performFullScreenSnip() {
+        noteCaptureChromeBegan()
         #if APP_STORE
         let screen = UmbrellaScreenCoordinateSpace.mainScreen ?? NSScreen.main
-        guard let frame = screen?.frame else { return }
+        guard let frame = screen?.frame else {
+            noteCaptureChromeEnded()
+            return
+        }
         finishImageSnip(selection: frame)
         #else
         let output = screenshotOutputPath()
@@ -256,6 +260,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
 
     private func recordArea(includeMicrophone: Bool) {
         guard areaSelector == nil, !isStartingRecording, !isRecording else { return }
+        noteCaptureChromeBegan()
         NSApp.activate(ignoringOtherApps: true)
         logDebug("record: presenting area selector")
         prewarmShareableContent()
@@ -273,6 +278,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 self?.shareableContentPrewarmTask = nil
                 self?.areaSelector = nil
                 self?.logDebug("record: selection cancelled")
+                self?.noteCaptureChromeEnded()
                 self?.notifyDisplayCaptureSettled()
             }
         )
@@ -289,7 +295,10 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
     }
 
     private func beginRecording(selection: CGRect, includeMicrophone: Bool) {
-        guard !isRecording, !isStartingRecording else { return }
+        guard !isRecording, !isStartingRecording else {
+            noteCaptureChromeEnded()
+            return
+        }
         recordingStartGeneration += 1
         let generation = recordingStartGeneration
         isStartingRecording = true
@@ -321,6 +330,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         )
         recordingOverlay = overlay
         overlay.present()
+        noteCaptureChromeEnded()
         UmbrellaRecordingSoundFeedback.playStart()
         // isRecording marks UI/menu state; isStartingRecording stays true until the stream is live.
         isRecording = true
@@ -435,6 +445,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
 
     private func presentWindowSelector() {
         guard areaSelector == nil, windowSelector == nil, !isStartingRecording, !isRecording else { return }
+        noteCaptureChromeBegan()
         NSApp.activate(ignoringOtherApps: true)
         logDebug("snip: presenting window selector")
         let selector = UmbrellaWindowSelectionOverlay(
@@ -446,6 +457,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
             onCancel: { [weak self] in
                 self?.windowSelector = nil
                 self?.logDebug("snip: window selection cancelled")
+                self?.noteCaptureChromeEnded()
                 self?.notifyDisplayCaptureSettled()
             }
         )
@@ -456,6 +468,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
 
     private func presentAreaSelector(preferTextCopy: Bool = false) {
         guard areaSelector == nil, windowSelector == nil, !isStartingRecording, !isRecording else { return }
+        noteCaptureChromeBegan()
         NSApp.activate(ignoringOtherApps: true)
         logDebug("snip: presenting area selector\(preferTextCopy ? " (text copy)" : "")")
         let selector = UmbrellaAreaSelectionOverlay(
@@ -477,6 +490,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
             onCancel: { [weak self] in
                 self?.areaSelector = nil
                 self?.logDebug("snip: selection cancelled")
+                self?.noteCaptureChromeEnded()
                 self?.notifyDisplayCaptureSettled()
             }
         )
@@ -487,8 +501,10 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
 
     private func finishImageSnip(selection: CGRect) {
         let output = screenshotOutputPath()
+        UmbrellaSnipSoundFeedback.playScreenshot()
         captureSelectionRegion(selection, outputPath: output, compressed: true) { [weak self] success in
             guard let self else { return }
+            self.noteCaptureChromeEnded()
             self.notifyDisplayCaptureSettled()
             if success {
                 self.screenCaptureState = .allowed
@@ -519,6 +535,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         let output = textCaptureOutputPath()
         captureSelectionRegion(selection, outputPath: output, compressed: false) { [weak self] success in
             guard let self else { return }
+            self.noteCaptureChromeEnded()
             self.notifyDisplayCaptureSettled()
             if success {
                 self.screenCaptureState = .allowed
@@ -610,6 +627,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         process.arguments = arguments
         let errorPipe = Pipe()
         process.standardError = errorPipe
+        UmbrellaSnipSoundFeedback.playScreenshot()
         process.terminationHandler = { [weak self] task in
             let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -618,6 +636,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 self.notifyDisplayCaptureSettled()
                 let fileExists = FileManager.default.fileExists(atPath: outputPath)
                 self.logDebug("snip exit=\(task.terminationStatus) file=\(fileExists ? "yes" : "no")\(stderr.isEmpty ? "" : " stderr=\(stderr)")")
+                self.noteCaptureChromeEnded()
                 if task.terminationStatus == 0, fileExists {
                     _ = UmbrellaScreenCoordinateSpace.recompressScreenshot(at: outputPath)
                     self.screenCaptureState = .allowed
@@ -643,6 +662,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
             try process.run()
         } catch {
             logDebug("snip launch error: \(error.localizedDescription)")
+            noteCaptureChromeEnded()
             notifyDisplayCaptureSettled()
             postNotification(title: "Umbrella Helper", body: "Capture failed: \(error.localizedDescription)")
         }
@@ -844,6 +864,9 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                     pasteboard.clearContents()
                     let ok = pasteboard.setString(recognizedText, forType: .string)
                     self.logDebug("text OCR: \(recognizedText.count) chars, clipboard \(ok ? "ok" : "FAILED")")
+                    if ok {
+                        UmbrellaSnipSoundFeedback.playTextCopy()
+                    }
                     self.postNotification(title: "Umbrella Helper", body: "Copied text to clipboard.")
                 }
             }
@@ -969,6 +992,8 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         }
         if permissionGateTask != nil { return }
 
+        NotificationCenter.default.post(name: .umbrellaDismissMenuBarPopover, object: nil)
+
         permissionGateTask = Task { @MainActor in
             defer { self.permissionGateTask = nil }
             let screenGranted = self.resolveScreenCaptureAccess()
@@ -1061,6 +1086,14 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         onDisplayCaptureSettled?()
     }
 
+    private func noteCaptureChromeBegan() {
+        NotificationCenter.default.post(name: .umbrellaCaptureChromeBegan, object: nil)
+    }
+
+    private func noteCaptureChromeEnded() {
+        NotificationCenter.default.post(name: .umbrellaCaptureChromeEnded, object: nil)
+    }
+
     func logDebug(_ message: String) {
         let entry = "[\(Self.debugTimestamp())] \(message)"
         debugLog.insert(entry, at: 0)
@@ -1151,8 +1184,9 @@ extension NSScreen {
 }
 
 enum UmbrellaScreenCoordinateSpace {
-    /// Soften overlay stacking vs `.screenSaver` while staying above normal app chrome.
-    static let overlayWindowLevel = NSWindow.Level.popUpMenu
+    /// Just above the menu-bar popover (`popUpMenu`) so an open menu cannot cover a snip.
+    /// Stays well under `.screenSaver` so system UI is not buried.
+    static let overlayWindowLevel = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue + 2)
     static let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
         .canJoinAllSpaces,
         .fullScreenAuxiliary,
@@ -1486,6 +1520,142 @@ final class UmbrellaAudioLevelMeter {
 enum UmbrellaRecordingSoundFeedback {
     static func playStart() { NSSound(named: NSSound.Name("Pop"))?.play() }
     static func playStop() { NSSound(named: NSSound.Name("Bottle"))?.play() }
+}
+
+enum UmbrellaSnipSoundFeedback {
+    private static var shutterSound: NSSound?
+    private static var paperSound: NSSound?
+
+    static func playScreenshot() {
+        play(cached: &shutterSound, samples: shutterSamples())
+    }
+
+    static func playTextCopy() {
+        play(cached: &paperSound, samples: paperSamples())
+    }
+
+    private static func play(cached: inout NSSound?, samples: [Float]) {
+        if cached == nil {
+            cached = NSSound(data: wavData(samples: samples))
+            cached?.volume = 0.9
+        }
+        guard let sound = cached else { return }
+        sound.stop()
+        sound.currentTime = 0
+        sound.play()
+    }
+
+    /// Two noise clicks plus a short body thump, about a camera shutter.
+    private static func shutterSamples() -> [Float] {
+        let rate = 44_100.0
+        let count = Int(rate * 0.16)
+        var samples = [Float](repeating: 0, count: count)
+        var rng: UInt64 = 0xA5A5_1234
+
+        func burst(at start: Double, length: Double, amplitude: Float, cutoff: Double) {
+            var low = 0.0
+            let startIndex = Int(start * rate)
+            let lengthCount = Int(length * rate)
+            for index in 0..<lengthCount {
+                let sampleIndex = startIndex + index
+                guard sampleIndex < count else { break }
+                let progress = Double(index) / Double(lengthCount)
+                let envelope = Float(pow(1 - progress, 2.2)) * amplitude
+                rng = rng &* 6_364_136_223_846_793_005 &+ 1
+                let white = Double(Int32(truncatingIfNeeded: rng >> 33)) / Double(Int32.max)
+                low += (white - low) * cutoff
+                samples[sampleIndex] += envelope * Float(white - low)
+            }
+        }
+
+        burst(at: 0, length: 0.016, amplitude: 1, cutoff: 0.42)
+        burst(at: 0.03, length: 0.042, amplitude: 0.82, cutoff: 0.2)
+        let thumpStart = Int(0.032 * rate)
+        for index in 0..<Int(0.07 * rate) {
+            let sampleIndex = thumpStart + index
+            guard sampleIndex < count else { break }
+            let time = Double(index) / rate
+            let envelope = Float(exp(-time * 58))
+            samples[sampleIndex] += envelope * 0.4 * Float(sin(2 * .pi * 130 * time))
+        }
+        return normalized(samples, peak: 0.78)
+    }
+
+    /// A few overlapping high-passed noise bursts, about paper sliding.
+    private static func paperSamples() -> [Float] {
+        let rate = 44_100.0
+        let count = Int(rate * 0.4)
+        var samples = [Float](repeating: 0, count: count)
+        var rng: UInt64 = 0x5A11_7E11
+        var low = 0.0
+        let rustles: [(start: Double, length: Double, amplitude: Float)] = [
+            (0.00, 0.09, 0.65),
+            (0.055, 0.12, 0.9),
+            (0.15, 0.1, 0.72),
+            (0.23, 0.14, 1),
+            (0.33, 0.07, 0.5),
+        ]
+
+        for index in 0..<count {
+            let time = Double(index) / rate
+            rng = rng &* 6_364_136_223_846_793_005 &+ 1
+            let white = Double(Int32(truncatingIfNeeded: rng >> 33)) / Double(Int32.max)
+            low += (white - low) * 0.2
+            var envelope: Float = 0
+            for rustle in rustles {
+                let progress = (time - rustle.start) / rustle.length
+                if progress > 0, progress < 1 {
+                    let grain = sin(progress * .pi)
+                    let flutter = 0.62 + 0.38 * sin(progress * 26 * .pi)
+                    envelope += Float(grain * flutter) * rustle.amplitude
+                }
+            }
+            samples[index] = Float(white - low) * envelope
+        }
+        return normalized(samples, peak: 0.55)
+    }
+
+    private static func normalized(_ samples: [Float], peak: Float) -> [Float] {
+        let maxAmplitude = samples.map { abs($0) }.max() ?? 0
+        guard maxAmplitude > 0.000_1 else { return samples }
+        let gain = peak / maxAmplitude
+        return samples.map { $0 * gain }
+    }
+
+    private static func wavData(samples: [Float]) -> Data {
+        let sampleRate: UInt32 = 44_100
+        let channels: UInt16 = 1
+        let bitsPerSample: UInt16 = 16
+        let dataSize = UInt32(samples.count * MemoryLayout<Int16>.size)
+        var data = Data()
+
+        func append(_ string: String) {
+            data.append(contentsOf: string.utf8)
+        }
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+        }
+
+        append("RIFF")
+        append(UInt32(36) + dataSize)
+        append("WAVE")
+        append("fmt ")
+        append(UInt32(16))
+        append(UInt16(1))
+        append(channels)
+        append(sampleRate)
+        append(sampleRate * UInt32(channels) * UInt32(bitsPerSample) / 8)
+        append(channels * bitsPerSample / 8)
+        append(bitsPerSample)
+        append("data")
+        append(dataSize)
+        for sample in samples {
+            let clamped = max(-1, min(1, sample))
+            append(Int16(clamped * 32_767))
+        }
+        return data
+    }
 }
 
 /// Hide the veil immediately, but do not close the windows inside the mouse-tracking

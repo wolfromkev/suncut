@@ -3,6 +3,11 @@ import SwiftUI
 
 extension Notification.Name {
     static let menuBarIconVisibilityChanged = Notification.Name("menuBarIconVisibilityChanged")
+    /// Hide the menu immediately. Does not block it from opening again.
+    static let umbrellaDismissMenuBarPopover = Notification.Name("umbrellaDismissMenuBarPopover")
+    /// Selection or capture UI is up. Keep the menu from ordering itself in front.
+    static let umbrellaCaptureChromeBegan = Notification.Name("umbrellaCaptureChromeBegan")
+    static let umbrellaCaptureChromeEnded = Notification.Name("umbrellaCaptureChromeEnded")
 }
 
 @MainActor
@@ -14,9 +19,54 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private lazy var statusMenu: NSMenu = makeStatusMenu()
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
+    private var dismissObserver: NSObjectProtocol?
+    private var captureBeganObserver: NSObjectProtocol?
+    private var captureEndedObserver: NSObjectProtocol?
+    private var resignActiveObserver: NSObjectProtocol?
+    /// While a snip overlay or in-flight capture is up, AppKit will otherwise order this popover in front of it.
+    private var captureChromeActive = false
 
     func start(appModel: AppModel) {
         self.appModel = appModel
+
+        let center = NotificationCenter.default
+        dismissObserver = center.addObserver(
+            forName: .umbrellaDismissMenuBarPopover,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.hidePopoverImmediately()
+            }
+        }
+        captureBeganObserver = center.addObserver(
+            forName: .umbrellaCaptureChromeBegan,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.beginCaptureChrome()
+            }
+        }
+        captureEndedObserver = center.addObserver(
+            forName: .umbrellaCaptureChromeEnded,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.captureChromeActive = false
+            }
+        }
+        resignActiveObserver = center.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                // System screenshot UI activates another process. Close so this menu cannot cover it.
+                self?.hidePopoverImmediately()
+            }
+        }
 
         visibilityObserver = NotificationCenter.default.addObserver(
             forName: .menuBarIconVisibilityChanged,
@@ -118,6 +168,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func showPopover() {
+        guard !captureChromeActive else { return }
         guard let appModel, let button = statusItem?.button else { return }
 
         let popover = ensurePopover(appModel: appModel)
@@ -130,14 +181,51 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.level = .popUpMenu
         button.isHighlighted = true
         NSApp.activate(ignoringOtherApps: true)
         startOutsideClickMonitoring()
     }
 
     private func hidePopover() {
+        hidePopover(animated: true)
+    }
+
+    /// Close without the popover animation. An animated close is still ordering front when a snip activates the app.
+    private func hidePopoverImmediately() {
+        hidePopover(animated: false)
+    }
+
+    private func beginCaptureChrome() {
+        captureChromeActive = true
+        hidePopoverImmediately()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.captureChromeActive else { return }
+            self.hidePopoverImmediately()
+        }
+    }
+
+    private func hidePopover(animated: Bool) {
         stopOutsideClickMonitoring()
-        popover?.performClose(nil)
+        guard let popover else {
+            statusItem?.button?.isHighlighted = false
+            return
+        }
+
+        let wasAnimating = popover.animates
+        if !animated {
+            popover.animates = false
+        }
+        if let window = popover.contentViewController?.view.window {
+            window.level = .normal
+            window.orderOut(nil)
+        }
+        if popover.isShown {
+            popover.performClose(nil)
+        }
+        if !animated {
+            popover.animates = wasAnimating
+        }
         statusItem?.button?.isHighlighted = false
     }
 
@@ -150,7 +238,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
                 self?.openSettings()
             },
             onRunCapture: { [weak self] action in
-                self?.hidePopover()
+                self?.hidePopoverImmediately()
                 action()
             }
         )
@@ -228,6 +316,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
 
         hidePopover()
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        guard captureChromeActive else { return }
+        hidePopoverImmediately()
     }
 
     func popoverDidClose(_ notification: Notification) {

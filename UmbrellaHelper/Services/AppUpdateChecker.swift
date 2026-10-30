@@ -94,7 +94,12 @@ enum AppUpdateChecker {
             throw UpdateError.notWritable
         }
 
-        scheduleReplace(source: source, destination: destination, mount: mount)
+        scheduleReplace(
+            source: source,
+            destination: destination,
+            mount: mount,
+            signingIdentity: stableSigningIdentity()
+        )
         NSApp.terminate(nil)
     }
 
@@ -130,15 +135,22 @@ enum AppUpdateChecker {
         }
     }
 
-    private static func scheduleReplace(source: URL, destination: URL, mount: URL) {
+    private static func scheduleReplace(
+        source: URL,
+        destination: URL,
+        mount: URL,
+        signingIdentity: String?
+    ) {
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("umbrella-update-\(UUID().uuidString).sh")
+        let identity = shellQuote(signingIdentity ?? "")
         let script = """
         #!/bin/bash
         set -euo pipefail
         SOURCE=\(shellQuote(source.path))
         DEST=\(shellQuote(destination.path))
         MOUNT=\(shellQuote(mount.path))
+        IDENTITY=\(identity)
         PID=\(ProcessInfo.processInfo.processIdentifier)
         while kill -0 "$PID" 2>/dev/null; do
           sleep 0.2
@@ -147,6 +159,18 @@ enum AppUpdateChecker {
         rm -rf "$DEST"
         ditto "$SOURCE" "$DEST"
         xattr -cr "$DEST"
+        # GitHub builds are ad-hoc. Re-sign with this Mac's certificate so Screen Recording stays granted.
+        if [[ -n "$IDENTITY" ]] && security find-identity -v -p codesigning | grep -F -q "\\"$IDENTITY\\""; then
+          ENT="$(mktemp)"
+          if codesign -d --entitlements :- "$DEST" > "$ENT"; then
+            codesign --force --deep --options runtime \\
+              --entitlements "$ENT" \\
+              --identifier "com.kevinwolfrom.umbrella" \\
+              --sign "$IDENTITY" \\
+              "$DEST"
+          fi
+          rm -f "$ENT"
+        fi
         diskutil eject "$MOUNT" >/dev/null 2>&1 || true
         open "$DEST"
         rm -f "$0"
@@ -210,10 +234,38 @@ enum AppUpdateChecker {
         version.split(separator: ".").map { Int($0) ?? 0 }
     }
 
+    /// Leaf certificate for this copy, when it is a stable Apple identity rather than an ad-hoc signature.
+    private static func stableSigningIdentity() -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        task.arguments = ["-dv", Bundle.main.bundlePath]
+        let pipe = Pipe()
+        task.standardError = pipe
+        task.standardOutput = Pipe()
+        guard (try? task.run()) != nil else { return nil }
+        task.waitUntilExit()
+        let text = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let prefixes = [
+            "Authority=Apple Development:",
+            "Authority=Mac Developer:",
+            "Authority=Developer ID Application:",
+        ]
+        for line in text.split(whereSeparator: \.isNewline) {
+            let row = String(line)
+            if prefixes.contains(where: { row.hasPrefix($0) }) {
+                return String(row.dropFirst("Authority=".count))
+            }
+        }
+        return nil
+    }
+
     private static func confirmInstall(of version: String) -> Bool {
         let alert = NSAlert()
         alert.messageText = "Update available"
-        alert.informativeText = "Umbrella Helper \(version) is available. The app will quit, install it, and reopen. Screen Recording may need to be allowed again."
+        let keepsPermissions = stableSigningIdentity() != nil
+        alert.informativeText = keepsPermissions
+            ? "Umbrella Helper \(version) is available. The app will quit, install it, and reopen. Screen Recording and Microphone stay allowed."
+            : "Umbrella Helper \(version) is available. The app will quit, install it, and reopen. Screen Recording may need to be allowed again."
         alert.addButton(withTitle: "Install Update")
         alert.addButton(withTitle: "Not Now")
         NSApp.activate(ignoringOtherApps: true)
