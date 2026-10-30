@@ -11,11 +11,15 @@ extension Notification.Name {
 }
 
 @MainActor
-final class MenuBarController: NSObject, NSPopoverDelegate {
+final class MenuBarController: NSObject, NSWindowDelegate {
+    private static let panelSizeKey = "umbrella.menuPanelSize"
+    private static let defaultPanelSize = NSSize(width: 280, height: 500)
+    private static let minimumPanelSize = NSSize(width: 260, height: 280)
+
     private var statusItem: NSStatusItem?
     private weak var appModel: AppModel?
     private var visibilityObserver: NSObjectProtocol?
-    private var popover: NSPopover?
+    private var panel: MenuBarPanel?
     private lazy var statusMenu: NSMenu = makeStatusMenu()
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
@@ -23,7 +27,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private var captureBeganObserver: NSObjectProtocol?
     private var captureEndedObserver: NSObjectProtocol?
     private var resignActiveObserver: NSObjectProtocol?
-    /// While a snip overlay or in-flight capture is up, AppKit will otherwise order this popover in front of it.
+    /// While a snip overlay or in-flight capture is up, keep the menu from ordering itself in front.
     private var captureChromeActive = false
 
     func start(appModel: AppModel) {
@@ -31,7 +35,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
         let center = NotificationCenter.default
         // Deliver on the posting thread. queue: .main runs later, after the snip
-        // overlay has already forced this popover to the top of the screen.
+        // overlay has already ordered the menu in front.
         dismissObserver = center.addObserver(
             forName: .umbrellaDismissMenuBarPopover,
             object: nil,
@@ -162,7 +166,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func togglePopover() {
-        if popover?.isShown == true {
+        if panel?.wantsVisible == true {
             hidePopover()
         } else {
             showPopover()
@@ -173,34 +177,50 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         guard !captureChromeActive else { return }
         guard let appModel, let button = statusItem?.button else { return }
 
-        let popover = ensurePopover(appModel: appModel)
-        if popover.isShown {
+        let panel = ensurePanel(appModel: appModel)
+        if panel.wantsVisible {
             return
         }
 
-        if let hosting = popover.contentViewController as? NSHostingController<MenuBarControlsView> {
+        if let hosting = panel.contentViewController as? NSHostingController<MenuBarControlsView> {
             hosting.rootView = makeControlsView(appModel: appModel)
         }
 
-        popover.behavior = .transient
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        if let window = popover.contentViewController?.view.window {
-            window.alphaValue = 1
-            window.ignoresMouseEvents = false
-            window.level = .popUpMenu
+        let screen = button.window?.screen ?? NSScreen.main
+        let size = clampedPanelSize(savedPanelSize() ?? Self.defaultPanelSize, on: screen)
+        if let screen {
+            let visible = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+            panel.contentMaxSize = NSSize(width: visible.width, height: visible.height)
         }
-        button.isHighlighted = true
+        var frame = panel.frame
+        frame.size = size
+        panel.setFrame(frame, display: false)
+        position(panel, under: button)
+        panel.alphaValue = 1
+        panel.ignoresMouseEvents = false
+        panel.level = .popUpMenu
+        panel.wantsVisible = true
         NSApp.activate(ignoringOtherApps: true)
+        panel.orderFrontRegardless()
+        panel.makeKey()
+        button.isHighlighted = true
         startOutsideClickMonitoring()
     }
 
     private func hidePopover() {
-        hidePopover(animated: true)
+        hidePopoverImmediately()
     }
 
-    /// Close without the popover animation. An animated close is still ordering front when a snip activates the app.
+    /// Close before a snip activates the app. An `NSPopover` close still orders itself in front.
     private func hidePopoverImmediately() {
-        hidePopover(animated: false)
+        stopOutsideClickMonitoring()
+        statusItem?.button?.isHighlighted = false
+        guard let panel else { return }
+        panel.wantsVisible = false
+        panel.ignoresMouseEvents = true
+        // Drop below the snip overlay before ordering out, so a late order-front cannot cover the selection.
+        panel.level = .normal
+        panel.orderOut(nil)
     }
 
     private func beginCaptureChrome() {
@@ -214,29 +234,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     private func endCaptureChrome() {
         captureChromeActive = false
-        popover?.behavior = .transient
-    }
-
-    private func hidePopover(animated: Bool) {
-        stopOutsideClickMonitoring()
-        statusItem?.button?.isHighlighted = false
-        guard let popover else { return }
-
-        let wasAnimating = popover.animates
-        popover.animates = false
-        // Leave the window level alone. Changing it detaches the popover and AppKit parks it at the top of the screen.
-        if let window = popover.contentViewController?.view.window {
-            window.alphaValue = 0
-            window.ignoresMouseEvents = true
-            window.orderOut(nil)
-        }
-        if popover.isShown {
-            popover.performClose(nil)
-        }
-        if captureChromeActive {
-            popover.behavior = .applicationDefined
-        }
-        popover.animates = animated || wasAnimating
     }
 
     private func makeControlsView(appModel: AppModel) -> MenuBarControlsView {
@@ -254,24 +251,56 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         )
     }
 
-    private func ensurePopover(appModel: AppModel) -> NSPopover {
-        if let popover {
-            return popover
+    private func ensurePanel(appModel: AppModel) -> MenuBarPanel {
+        if let panel {
+            return panel
         }
 
-        let content = makeControlsView(appModel: appModel)
+        let hosting = NSHostingController(rootView: makeControlsView(appModel: appModel))
+        hosting.sizingOptions = []
 
-        let hosting = NSHostingController(rootView: content)
-        // Let the SwiftUI layout decide the height so the pinned Settings row is included.
-        hosting.sizingOptions = [.preferredContentSize]
+        let panel = MenuBarPanel(contentViewController: hosting)
+        panel.contentMinSize = Self.minimumPanelSize
+        panel.delegate = self
+        self.panel = panel
+        return panel
+    }
 
-        let popover = NSPopover()
-        popover.contentViewController = hosting
-        popover.behavior = .transient
-        popover.animates = true
-        popover.delegate = self
-        self.popover = popover
-        return popover
+    private func savedPanelSize() -> NSSize? {
+        guard let raw = UserDefaults.standard.string(forKey: Self.panelSizeKey) else { return nil }
+        let size = NSSizeFromString(raw)
+        guard size.width >= Self.minimumPanelSize.width, size.height >= Self.minimumPanelSize.height else { return nil }
+        return size
+    }
+
+    private func clampedPanelSize(_ size: NSSize, on screen: NSScreen?) -> NSSize {
+        let visible = (screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600))
+            .insetBy(dx: 8, dy: 8)
+        return NSSize(
+            width: min(max(size.width, Self.minimumPanelSize.width), visible.width),
+            height: min(max(size.height, Self.minimumPanelSize.height), visible.height)
+        )
+    }
+
+    private func position(_ panel: NSPanel, under button: NSStatusBarButton) {
+        guard let buttonWindow = button.window else { return }
+        let buttonRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let size = panel.frame.size
+        var origin = NSPoint(
+            x: buttonRect.midX - size.width / 2,
+            y: buttonRect.minY - size.height - 4
+        )
+        if let screen = buttonWindow.screen ?? NSScreen.main {
+            let visible = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+            origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
+            origin.y = max(origin.y, visible.minY)
+        }
+        panel.setFrameOrigin(origin)
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        UserDefaults.standard.set(NSStringFromSize(window.frame.size), forKey: Self.panelSizeKey)
     }
 
     private func startOutsideClickMonitoring() {
@@ -307,7 +336,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func dismissIfClickOutside() {
-        guard popover?.isShown == true else { return }
+        guard panel?.wantsVisible == true else { return }
 
         let location = NSEvent.mouseLocation
 
@@ -319,23 +348,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             }
         }
 
-        if let popoverWindow = popover?.contentViewController?.view.window {
-            if popoverWindow.frame.contains(location) {
-                return
-            }
+        if let panel, panel.frame.contains(location) {
+            return
         }
 
         hidePopover()
-    }
-
-    func popoverDidShow(_ notification: Notification) {
-        guard captureChromeActive else { return }
-        hidePopoverImmediately()
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        stopOutsideClickMonitoring()
-        statusItem?.button?.isHighlighted = false
     }
 
     @objc private func openSettings() {
@@ -348,5 +365,64 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+}
+
+/// Menu window we own. `NSPopover` reorders itself in front of a screenshot and parks at the top of the screen.
+private final class MenuBarPanel: NSPanel {
+    /// When false, AppKit cannot bring this window forward. A snip sets this before it activates the app.
+    var wantsVisible = false
+
+    init(contentViewController: NSViewController) {
+        super.init(
+            contentRect: NSRect(origin: .zero, size: NSSize(width: 280, height: 500)),
+            styleMask: [.titled, .resizable, .fullSizeContentView, .utilityWindow, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        self.contentViewController = contentViewController
+        isFloatingPanel = true
+        becomesKeyOnlyIfNeeded = false
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        isMovable = false
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        titlebarSeparatorStyle = .none
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        level = .normal
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        animationBehavior = .none
+        standardWindowButton(.closeButton)?.isHidden = true
+        standardWindowButton(.miniaturizeButton)?.isHidden = true
+        standardWindowButton(.zoomButton)?.isHidden = true
+        if let contentView {
+            contentView.wantsLayer = true
+            contentView.layer?.cornerRadius = 12
+            contentView.layer?.masksToBounds = true
+        }
+    }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        if !wantsVisible, place != .out {
+            super.order(.out, relativeTo: otherWin)
+            return
+        }
+        super.order(place, relativeTo: otherWin)
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        guard wantsVisible else { return }
+        super.makeKeyAndOrderFront(sender)
+    }
+
+    override func orderFrontRegardless() {
+        guard wantsVisible else { return }
+        super.orderFrontRegardless()
     }
 }

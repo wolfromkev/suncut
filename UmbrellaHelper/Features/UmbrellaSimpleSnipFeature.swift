@@ -992,8 +992,8 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         }
         if permissionGateTask != nil { return }
 
-        // Close the menu before the permission task yields. A later close lets AppKit
-        // detach the popover and park it at the top of the screen.
+        // Close the menu before the permission task yields. Leaving it up lets AppKit
+        // order that window in front of the selection overlay.
         noteCaptureChromeBegan()
 
         permissionGateTask = Task { @MainActor in
@@ -1193,7 +1193,7 @@ extension NSScreen {
 }
 
 enum UmbrellaScreenCoordinateSpace {
-    /// Just above the menu-bar popover (`popUpMenu`) so an open menu cannot cover a snip.
+    /// Just above the menu panel (`popUpMenu`) so an open menu cannot cover a snip.
     /// Stays well under `.screenSaver` so system UI is not buried.
     static let overlayWindowLevel = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue + 2)
     static let overlayCollectionBehavior: NSWindow.CollectionBehavior = [

@@ -24,7 +24,7 @@ struct MenuBarControlsView: View {
                 menuSections
                     .padding(14)
             }
-            .frame(maxHeight: 460)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
 
@@ -45,7 +45,8 @@ struct MenuBarControlsView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
-        .frame(width: 280)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(nsColor: .windowBackgroundColor))
         .background(
             MenuBarControlsEventCatcher { event in
                 handleControlEvent(event)
