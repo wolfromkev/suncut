@@ -1,7 +1,7 @@
-# Umbrella Helper
+# Suncut
 
 <p align="center">
-  <img src="branding/icon-1024.png" alt="Umbrella Helper logo" width="128" height="128">
+  <img src="branding/icon-1024.png" alt="Suncut logo" width="128" height="128">
 </p>
 
 A native macOS menu bar app for screen capture/recording and display warmth/brightness (including Film Mode).
@@ -21,14 +21,14 @@ A native macOS menu bar app for screen capture/recording and display warmth/brig
 
 Download the disk image. You do not need Xcode.
 
-**[Download Umbrella Helper](https://github.com/wolfromkev/umbrella-helper/releases/latest/download/Umbrella-Helper.dmg)**
+**[Download Suncut](https://github.com/wolfromkev/suncut/releases/latest/download/Suncut.dmg)**
 
-1. Open the DMG and drag **Umbrella Helper** onto Applications.
-2. Right-click **Umbrella Helper** in Applications and choose **Open**, then **Open** again. macOS blocks this download the first time because it is not notarized.
+1. Open the DMG and drag **Suncut** onto Applications.
+2. Right-click **Suncut** in Applications and choose **Open**, then **Open** again. macOS blocks this download the first time because it is not notarized.
 3. If macOS says the app is damaged, open Terminal and run:
 
 ```bash
-xattr -cr "/Applications/Umbrella Helper.app"
+xattr -cr "/Applications/Suncut.app"
 ```
 
 Then right-click the app and choose **Open** again.
@@ -38,8 +38,8 @@ Then right-click the app and choose **Open** again.
 Requires Xcode 27 (or Xcode 26 on macOS Tahoe).
 
 ```bash
-git clone https://github.com/wolfromkev/umbrella-helper.git
-cd umbrella-helper
+git clone https://github.com/wolfromkev/suncut.git
+cd suncut
 chmod +x install.sh
 ./install.sh
 ```
@@ -50,11 +50,11 @@ Or build, install, and relaunch:
 ./build-and-install.sh
 ```
 
-The script builds a Release app, copies it to `/Applications/Umbrella Helper.app`, and signs it with a stable certificate from your keychain (Apple Development, or `UMBRELLA_SIGN_IDENTITY` if you set one). That keeps Screen Recording, Microphone, and Accessibility granted across rebuilds. The first launch after switching off ad-hoc signing asks for those permissions once.
+The script builds a Release app, copies it to `/Applications/Suncut.app`, and signs it with a stable certificate from your keychain (Apple Development, or `UMBRELLA_SIGN_IDENTITY` if you set one). That keeps Screen Recording, Microphone, and Accessibility granted across rebuilds. The first launch after switching off ad-hoc signing asks for those permissions once.
 
 ## First-time setup
 
-1. Launch **Umbrella Helper** from Applications.
+1. Launch **Suncut** from Applications.
 2. Open **Settings** (menu bar → right-click → Settings, or `⌘,`).
 3. Under **Permissions**, grant **Screen Recording** (and Microphone if you record with mic).
 

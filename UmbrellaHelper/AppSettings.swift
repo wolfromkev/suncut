@@ -199,6 +199,7 @@ final class AppSettings {
         static let filmModeHotKey = "filmModeHotKey"
         static let sunScreenPresetHotKeys = "sunScreenPresetHotKeys"
         static let launchAtLogin = "launchAtLogin"
+        static let soundEffects = "soundEffects"
         static let showMenuBarIcon = showMenuBarIconKey
         static let permissionsAutomationDone = "permissionsAutomationDone"
         static let permissionsLoginItemsDone = "permissionsLoginItemsDone"
@@ -399,6 +400,17 @@ final class AppSettings {
     var launchAtLogin: Bool {
         get { UserDefaults.standard.bool(forKey: Keys.launchAtLogin) }
         set { UserDefaults.standard.set(newValue, forKey: Keys.launchAtLogin) }
+    }
+
+    /// Screenshot shutter and recording start/stop. On until the user turns it off.
+    var soundEffectsEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: Keys.soundEffects) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: Keys.soundEffects)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.soundEffects) }
     }
 
     var showMenuBarIcon: Bool {

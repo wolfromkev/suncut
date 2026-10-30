@@ -360,7 +360,7 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         apply(persist: true, immediate: true)
     }
 
-    /// Emergency reset: restore system ColorSync, then re-apply current Umbrella settings once.
+    /// Emergency reset: restore system ColorSync, then re-apply current Suncut settings once.
     func restoreDisplayColor() {
         pendingApplyWorkItem?.cancel()
         pendingApplyWorkItem = nil
@@ -677,7 +677,7 @@ final class UmbrellaBrightnessFeature: ObservableObject {
             guard keepAwakeActivity == nil else { return }
             keepAwakeActivity = ProcessInfo.processInfo.beginActivity(
                 options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled],
-                reason: "Umbrella Keep Awake"
+                reason: "Suncut Keep Awake"
             )
         } else {
             releaseKeepAwake()

@@ -71,7 +71,7 @@ final class SnipPermissionPromptController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.title = "Umbrella Helper"
+        panel.title = "Suncut"
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
@@ -188,11 +188,11 @@ final class SnipPermissionPromptController: NSObject, NSWindowDelegate {
     private func message(for missing: Set<SnipPermission>) -> String {
         switch (missing.contains(.screenCapture), missing.contains(.microphone)) {
         case (true, false):
-            return "Umbrella Helper can’t take screenshots or record video until Screen Recording is allowed. Turn on Umbrella Helper in System Settings → Privacy & Security → Screen & System Audio Recording. If you just turned it on, quit and reopen the app."
+            return "Suncut can’t take screenshots or record video until Screen Recording is allowed. Turn on Suncut in System Settings → Privacy & Security → Screen & System Audio Recording. If you just turned it on, quit and reopen the app."
         case (false, true):
-            return "Record microphone is on, so this recording needs microphone access. Turn on Umbrella Helper in System Settings → Privacy & Security → Microphone."
+            return "Record microphone is on, so this recording needs microphone access. Turn on Suncut in System Settings → Privacy & Security → Microphone."
         default:
-            return "Umbrella Helper needs two permissions before this can work:\n\n• Screen & System Audio Recording — for screenshots and video\n• Microphone — because Record microphone is on\n\nTurn both on for Umbrella Helper in System Settings → Privacy & Security. If you just turned on Screen Recording, quit and reopen the app."
+            return "Suncut needs two permissions before this can work:\n\n• Screen & System Audio Recording — for screenshots and video\n• Microphone — because Record microphone is on\n\nTurn both on for Suncut in System Settings → Privacy & Security. If you just turned on Screen Recording, quit and reopen the app."
         }
     }
 

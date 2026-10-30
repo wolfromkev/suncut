@@ -24,18 +24,18 @@ Forks that distribute their own build should change `PRODUCT_BUNDLE_IDENTIFIER` 
 
 ## GitHub download
 
-Ship the installable app as a Release asset named `Umbrella-Helper.dmg`. That name matches the README download link. Do not commit the DMG into the repository.
+Ship the installable app as a Release asset named `Suncut.dmg`. That name matches the README download link. Do not commit the DMG into the repository.
 
 ```bash
 ./make-dmg.sh
-gh release create "v<version>" "build/Umbrella-Helper.dmg" \
-  --title "Umbrella Helper <version>" \
+gh release create "v<version>" "build/Suncut.dmg" \
+  --title "Suncut <version>" \
   --notes "See the README install steps."
 ```
 
 Bump `MARKETING_VERSION` on the Release configuration before cutting the release. `Info.plist` reads that setting. Check for Updates compares that version with the GitHub tag, so a new disk image published under the same version is treated as already installed.
 
-`./make-dmg.sh` writes `build/Umbrella-Helper.dmg` for that upload, plus a versioned copy next to it. It ad-hoc signs the app so it can launch on a Mac that does not have this machine’s Apple Development certificate. The first open on another Mac still needs the right-click Open step in the README. Notarization needs a Developer ID Application certificate, which this project does not use yet.
+`./make-dmg.sh` writes `build/Suncut.dmg` for that upload, plus a versioned copy next to it. It ad-hoc signs the app so it can launch on a Mac that does not have this machine’s Apple Development certificate. The first open on another Mac still needs the right-click Open step in the README. Notarization needs a Developer ID Application certificate, which this project does not use yet.
 
 ## Mac App Store
 

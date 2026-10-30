@@ -105,7 +105,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             button.imageScaling = .scaleProportionallyUpOrDown
             button.image = MenuBarIcon.image()
             button.title = ""
-            button.toolTip = "Umbrella Helper — click for controls, right-click for menu"
+            button.toolTip = "Suncut — click for controls, right-click for menu"
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -123,7 +123,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         menu.addItem(.separator())
         menu.addItem(menuItem("Restart", action: #selector(restartApp)))
 
-        let quitItem = menuItem("Quit Umbrella Helper", action: #selector(quitApp))
+        let quitItem = menuItem("Quit Suncut", action: #selector(quitApp))
         quitItem.keyEquivalent = "q"
         menu.addItem(quitItem)
         return menu

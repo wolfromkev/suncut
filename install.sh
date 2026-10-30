@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$ROOT/UmbrellaHelper.xcodeproj"
 SCHEME="UmbrellaHelper"
-APP_NAME="Umbrella Helper"
+APP_NAME="Suncut"
 BUILD_DIR="$ROOT/build"
 DERIVED="$BUILD_DIR/DerivedData"
 INSTALL_DIR="${1:-/Applications}"

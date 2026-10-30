@@ -49,7 +49,7 @@ final class SettingsPanelController: NSObject, NSWindowDelegate {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Umbrella Helper Settings"
+            window.title = "Suncut Settings"
             window.delegate = self
             window.contentViewController = hosting
             window.setContentSize(contentSize)

@@ -25,6 +25,7 @@ struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var selectedTab: UmbrellaSettingsTab = .keybindings
     @State private var launchAtLogin = AppSettings.shared.launchAtLogin
+    @State private var soundEffectsEnabled = AppSettings.shared.soundEffectsEnabled
 
     @State private var snipAreaHotKey = AppSettings.shared.snipAreaHotKey
     @State private var snipWindowHotKey = AppSettings.shared.snipWindowHotKey
@@ -76,6 +77,11 @@ struct SettingsView: View {
                         .onChange(of: launchAtLogin) { _, enabled in
                             AppSettings.shared.launchAtLogin = enabled
                             LaunchAtLoginManager.setEnabled(enabled)
+                        }
+
+                    Toggle("Sound effects", isOn: $soundEffectsEnabled)
+                        .onChange(of: soundEffectsEnabled) { _, enabled in
+                            AppSettings.shared.soundEffectsEnabled = enabled
                         }
 
                     HStack {
@@ -391,7 +397,7 @@ private struct BrightnessTabView: View {
                     Button("Restore Display Color") {
                         feature.restoreDisplayColor()
                     }
-                    .help("Reset system display color, then re-apply current Umbrella settings.")
+                    .help("Reset system display color, then re-apply current Suncut settings.")
                 }
 
                 section("Schedule") {

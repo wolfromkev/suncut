@@ -95,7 +95,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
             .path
         let recordings = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Movies")
-            .appendingPathComponent("Umbrella Helper Recordings")
+            .appendingPathComponent("Suncut Recordings")
             .path
         screenshotFolderPath = defaults.string(forKey: "umbrella.snip.screenshotFolder") ?? screenshots
         recordingFolderPath = defaults.string(forKey: "umbrella.snip.recordingFolder") ?? recordings
@@ -380,7 +380,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                     self.screenCaptureState = .notAllowed
                     self.showMissingCapturePermissions([.screenCapture])
                 } else {
-                    self.postNotification(title: "Umbrella Helper", body: "Could not start recording: \(error.localizedDescription)")
+                    self.postNotification(title: "Suncut", body: "Could not start recording: \(error.localizedDescription)")
                 }
             }
         }
@@ -430,7 +430,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 }
                 logDebug("record saved: \(url.lastPathComponent)")
                 notifyDisplayCaptureSettled()
-                postNotification(title: "Umbrella Helper", body: "Saved recording \(url.lastPathComponent)")
+                postNotification(title: "Suncut", body: "Saved recording \(url.lastPathComponent)")
                 if revealRecordingInFinder {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
@@ -438,7 +438,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 isRecording = false
                 logDebug("record stop failed: \(error.localizedDescription)")
                 notifyDisplayCaptureSettled()
-                postNotification(title: "Umbrella Helper", body: "Recording failed: \(error.localizedDescription)")
+                postNotification(title: "Suncut", body: "Recording failed: \(error.localizedDescription)")
             }
         }
     }
@@ -515,7 +515,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                     self.logDebug("snip clipboard copy: \(copied ? "ok" : "FAILED")")
                     let name = (output as NSString).lastPathComponent
                     self.postNotification(
-                        title: "Umbrella Helper",
+                        title: "Suncut",
                         body: copied ? "Saved \(name) and copied to clipboard" : "Saved \(name)"
                     )
                     if self.revealScreenshotInFinder {
@@ -526,7 +526,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 self.screenCaptureState = .notAllowed
                 self.showMissingCapturePermissions([.screenCapture])
             } else {
-                self.postNotification(title: "Umbrella Helper", body: "Capture failed.")
+                self.postNotification(title: "Suncut", body: "Capture failed.")
             }
         }
     }
@@ -544,7 +544,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 self.screenCaptureState = .notAllowed
                 self.showMissingCapturePermissions([.screenCapture])
             } else {
-                self.postNotification(title: "Umbrella Helper", body: "Text capture failed.")
+                self.postNotification(title: "Suncut", body: "Text capture failed.")
             }
         }
     }
@@ -646,7 +646,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                     self.logDebug("snip clipboard copy: \(copied ? "ok" : "FAILED")")
                     let name = (outputPath as NSString).lastPathComponent
                     self.postNotification(
-                        title: "Umbrella Helper",
+                        title: "Suncut",
                         body: copied ? "Saved \(name) and copied to clipboard" : "Saved \(name)"
                     )
                     if reveal {
@@ -664,7 +664,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
             logDebug("snip launch error: \(error.localizedDescription)")
             noteCaptureChromeEnded()
             notifyDisplayCaptureSettled()
-            postNotification(title: "Umbrella Helper", body: "Capture failed: \(error.localizedDescription)")
+            postNotification(title: "Suncut", body: "Capture failed: \(error.localizedDescription)")
         }
     }
 
@@ -698,7 +698,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         } catch {
             logDebug("text launch error: \(error.localizedDescription)")
             notifyDisplayCaptureSettled()
-            postNotification(title: "Umbrella Helper", body: "Text capture failed: \(error.localizedDescription)")
+            postNotification(title: "Suncut", body: "Text capture failed: \(error.localizedDescription)")
         }
     }
     #endif
@@ -739,13 +739,13 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
     private static func defaultStoreScreenshotFolder() -> String {
         let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return pictures.appendingPathComponent("Umbrella Helper", isDirectory: true).path
+        return pictures.appendingPathComponent("Suncut", isDirectory: true).path
     }
 
     private static func defaultStoreRecordingFolder() -> String {
         let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return movies.appendingPathComponent("Umbrella Helper Recordings", isDirectory: true).path
+        return movies.appendingPathComponent("Suncut Recordings", isDirectory: true).path
     }
 
     private static func resolveSecurityScopedBookmark(_ data: Data) -> (url: URL, stale: Bool)? {
@@ -847,7 +847,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         guard let image = NSImage(contentsOfFile: path),
               let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             logDebug("text OCR: could not read image at \(path)")
-            postNotification(title: "Umbrella Helper", body: "Could not read captured image for text recognition.")
+            postNotification(title: "Suncut", body: "Could not read captured image for text recognition.")
             try? FileManager.default.removeItem(atPath: path)
             return
         }
@@ -858,7 +858,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                 guard let self else { return }
                 if recognizedText.isEmpty {
                     self.logDebug("text OCR: 0 chars recognized")
-                    self.postNotification(title: "Umbrella Helper", body: "No text detected in selected area.")
+                    self.postNotification(title: "Suncut", body: "No text detected in selected area.")
                 } else {
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
@@ -867,7 +867,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
                     if ok {
                         UmbrellaSnipSoundFeedback.playTextCopy()
                     }
-                    self.postNotification(title: "Umbrella Helper", body: "Copied text to clipboard.")
+                    self.postNotification(title: "Suncut", body: "Copied text to clipboard.")
                 }
             }
             try? FileManager.default.removeItem(atPath: path)
@@ -958,7 +958,7 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
             logDebug("mic request resolved: \(granted ? "granted" : "denied")")
             if !granted, notifyOnDenial {
                 postNotification(
-                    title: "Umbrella Helper",
+                    title: "Suncut",
                     body: "Microphone access is required to record audio."
                 )
             }
@@ -967,8 +967,8 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
             microphoneState = .notAllowed
             if notifyOnDenial {
                 postNotification(
-                    title: "Umbrella Helper",
-                    body: "Enable Umbrella Helper in System Settings → Privacy & Security → Microphone."
+                    title: "Suncut",
+                    body: "Enable Suncut in System Settings → Privacy & Security → Microphone."
                 )
                 openMicrophoneSettings()
             }
@@ -1527,8 +1527,15 @@ final class UmbrellaAudioLevelMeter {
 }
 
 enum UmbrellaRecordingSoundFeedback {
-    static func playStart() { NSSound(named: NSSound.Name("Pop"))?.play() }
-    static func playStop() { NSSound(named: NSSound.Name("Bottle"))?.play() }
+    static func playStart() {
+        guard AppSettings.shared.soundEffectsEnabled else { return }
+        NSSound(named: NSSound.Name("Pop"))?.play()
+    }
+
+    static func playStop() {
+        guard AppSettings.shared.soundEffectsEnabled else { return }
+        NSSound(named: NSSound.Name("Bottle"))?.play()
+    }
 }
 
 enum UmbrellaSnipSoundFeedback {
@@ -1553,7 +1560,7 @@ enum UmbrellaSnipSoundFeedback {
 
     private static func play(_ sound: NSSound?) {
         DispatchQueue.main.async {
-            guard let sound else { return }
+            guard AppSettings.shared.soundEffectsEnabled, let sound else { return }
             sound.stop()
             sound.currentTime = 0
             sound.play()
@@ -2700,7 +2707,7 @@ final class UmbrellaScreenRecorder: NSObject, SCStreamDelegate {
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        NSLog("Umbrella stream stopped with error")
+        NSLog("Suncut stream stopped with error")
     }
 
     private func contentFilter(for display: SCDisplay, content: SCShareableContent) -> SCContentFilter {

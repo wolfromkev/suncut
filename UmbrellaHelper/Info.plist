@@ -11,7 +11,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Umbrella Helper</string>
+	<string>Suncut</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -29,15 +29,15 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Umbrella Helper may use Apple Events for system integrations when requested.</string>
+	<string>Suncut may use Apple Events for system integrations when requested.</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Umbrella Helper captures screenshots and recordings when you use SimpleSnip actions.</string>
+	<string>Suncut captures screenshots and recordings when you use SimpleSnip actions.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Umbrella Helper records microphone audio when Record microphone is enabled.</string>
+	<string>Suncut records microphone audio when Record microphone is enabled.</string>
 	<key>NSLocationUsageDescription</key>
-	<string>Umbrella Helper uses location to adjust Brightness sunrise and sunset schedules.</string>
+	<string>Suncut uses location to adjust Brightness sunrise and sunset schedules.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Umbrella Helper uses location to adjust Brightness sunrise and sunset schedules.</string>
+	<string>Suncut uses location to adjust Brightness sunrise and sunset schedules.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

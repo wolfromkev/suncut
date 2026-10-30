@@ -14,7 +14,7 @@ The sandboxed build is the **UmbrellaHelper App Store** scheme. Release, `instal
 
 Already done:
 
-- App Store Connect record for Umbrella Helper, macOS, version **1.0**
+- App Store Connect record for this app, macOS, version **1.0**. Rename it to **Suncut** in App Store Connect before review.
 - Bundle ID `com.kevinwolfrom.umbrella`, team `RTKZ7MF6UZ`
 - Version **1.0** build **5** uploaded with release Xcode 27.0 (`27A266a`). The earlier 1.0.3 upload will not appear on this version page.
 - Category in the app is Utilities (`public.app-category.utilities`)
@@ -24,7 +24,7 @@ Still to do in App Store Connect, on version 1.0:
 1. Refresh until build **5** finishes processing, then select it. Leave the version at 1.0.
 2. Add one Mac screenshot of the app in use, **1280 × 800** or larger.
 3. Paste the promotional text, description, and keywords below.
-4. **App Information:** support URL `https://github.com/wolfromkev/umbrella-helper`, copyright `2026 Kevin Wolfrom`, category Utilities.
+4. **App Information:** name **Suncut**, support URL `https://github.com/wolfromkev/suncut`, copyright `2026 Kevin Wolfrom`, category Utilities.
 5. **App Privacy:** precise location, used for app functionality, not linked to the user, not used for tracking. Screenshots and microphone audio stay on the Mac, so they are not collected data.
 6. **Pricing and Availability:** free.
 7. Paste the review notes below.
@@ -37,7 +37,7 @@ Menu bar screenshots, area recording, and display warmth. Snip a region, copy th
 
 **Description**
 
-Umbrella Helper lives in the menu bar for screenshots, screen recording, and display warmth.
+Suncut lives in the menu bar for screenshots, screen recording, and display warmth.
 
 SimpleSnip takes an area, a window, or the full screen, copies the image, and can read the text in a selection. You can also record an area with system audio or the microphone.
 

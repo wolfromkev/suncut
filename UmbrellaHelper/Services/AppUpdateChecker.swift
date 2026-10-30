@@ -10,8 +10,8 @@ enum AppUpdateChecker {
 
     #if !APP_STORE
     private static let owner = "wolfromkev"
-    private static let repo = "umbrella-helper"
-    private static let assetName = "Umbrella-Helper.dmg"
+    private static let repo = "suncut"
+    private static let assetName = "Suncut.dmg"
     private static var isBusy = false
 
     static func prompt() {
@@ -23,7 +23,7 @@ enum AppUpdateChecker {
                 guard let release = try await fetchNewerRelease() else {
                     inform(
                         "You’re up to date",
-                        "Umbrella Helper \(currentVersion) is the latest release."
+                        "Suncut \(currentVersion) is the latest release."
                     )
                     return
                 }
@@ -38,7 +38,7 @@ enum AppUpdateChecker {
     private static func fetchNewerRelease() async throws -> Release? {
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases/latest")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("UmbrellaHelper", forHTTPHeaderField: "User-Agent")
+        request.setValue("Suncut", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -70,7 +70,7 @@ enum AppUpdateChecker {
     private static func downloadAndInstall(_ release: Release) async throws {
         let downloaded = try await download(release.downloadURL)
         let mount = FileManager.default.temporaryDirectory
-            .appendingPathComponent("umbrella-update-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("suncut-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
 
         do {
@@ -80,7 +80,7 @@ enum AppUpdateChecker {
             throw error
         }
 
-        let source = mount.appendingPathComponent("Umbrella Helper.app")
+        let source = mount.appendingPathComponent("Suncut.app")
         guard FileManager.default.fileExists(atPath: source.path),
               bundleIdentifier(of: source) == "com.kevinwolfrom.umbrella" else {
             eject(mount)
@@ -109,7 +109,7 @@ enum AppUpdateChecker {
             throw UpdateError.downloadFailed
         }
         let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Umbrella-Helper-update.dmg")
+            .appendingPathComponent("Suncut-update.dmg")
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temp, to: destination)
         return destination
@@ -142,7 +142,7 @@ enum AppUpdateChecker {
         signingIdentity: String?
     ) {
         let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("umbrella-update-\(UUID().uuidString).sh")
+            .appendingPathComponent("suncut-update-\(UUID().uuidString).sh")
         let identity = shellQuote(signingIdentity ?? "")
         let script = """
         #!/bin/bash
@@ -182,7 +182,7 @@ enum AppUpdateChecker {
         task.executableURL = URL(fileURLWithPath: "/bin/bash")
         task.arguments = [
             "-c",
-            "nohup /bin/bash \(shellQuote(scriptURL.path)) >/tmp/umbrella-update.log 2>&1 &",
+            "nohup /bin/bash \(shellQuote(scriptURL.path)) >/tmp/suncut-update.log 2>&1 &",
         ]
         try? task.run()
         task.waitUntilExit()
@@ -264,8 +264,8 @@ enum AppUpdateChecker {
         alert.messageText = "Update available"
         let keepsPermissions = stableSigningIdentity() != nil
         alert.informativeText = keepsPermissions
-            ? "Umbrella Helper \(version) is available. The app will quit, install it, and reopen. Screen Recording and Microphone stay allowed."
-            : "Umbrella Helper \(version) is available. The app will quit, install it, and reopen. Screen Recording may need to be allowed again."
+            ? "Suncut \(version) is available. The app will quit, install it, and reopen. Screen Recording and Microphone stay allowed."
+            : "Suncut \(version) is available. The app will quit, install it, and reopen. Screen Recording may need to be allowed again."
         alert.addButton(withTitle: "Install Update")
         alert.addButton(withTitle: "Not Now")
         NSApp.activate(ignoringOtherApps: true)
@@ -325,7 +325,7 @@ private enum UpdateError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noRelease:
-            return "No Umbrella Helper release with a disk image was found on GitHub."
+            return "No Suncut release with a disk image was found on GitHub."
         case .badResponse:
             return "GitHub didn’t return the latest release."
         case .untrustedURL:
@@ -335,9 +335,9 @@ private enum UpdateError: LocalizedError {
         case .mountFailed(let detail):
             return detail.isEmpty ? "The disk image couldn’t be opened." : detail
         case .appMissing:
-            return "The disk image didn’t contain Umbrella Helper."
+            return "The disk image didn’t contain Suncut."
         case .notWritable:
-            return "Umbrella Helper can’t replace itself in this folder. Move it to Applications and try again."
+            return "Suncut can’t replace itself in this folder. Move it to Applications and try again."
         }
     }
 }

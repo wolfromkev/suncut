@@ -1,22 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
   <defs>
-    <radialGradient id="bg" cx="256" cy="215" r="370" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#2A2723"/>
-      <stop offset="1" stop-color="#12110F"/>
-    </radialGradient>
+    <linearGradient id="bg" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F253D"/>
+      <stop offset="0.48" stop-color="#29173D"/>
+      <stop offset="1" stop-color="#120C3D"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="256.0" y1="140.8" x2="256.0" y2="294.4" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ED6E8F"/>
+      <stop offset="0.46" stop-color="#FA7863"/>
+      <stop offset="1" stop-color="#F5B342"/>
+    </linearGradient>
+    <mask id="cut">
+      <rect width="512" height="512" fill="white"/>
+      <g stroke="black" stroke-width="23.8" stroke-linecap="round">
+    <line x1="209.8" y1="159.8" x2="273.5" y2="303.0"/>
+    <line x1="302.2" y1="159.8" x2="238.5" y2="303.0"/>
+      </g>
+    </mask>
   </defs>
-  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
-  <g stroke="#D4A574" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="256" cy="220" r="102"/>
-    <path d="M232 318l-28 62c18 22 86 22 104 0l-28-62"/>
-    <path d="M214 352h84M206 378h100"/>
+  <rect width="512" height="512" rx="114.5" fill="url(#bg)"/>
+  <g stroke-linecap="round" stroke-width="16.6">
+    <line x1="94.3" y1="251.1" x2="40.9" y2="236.8" stroke="#F5A352"/>
+    <line x1="107.5" y1="217.1" x2="56.6" y2="190.6" stroke="#F79459"/>
+    <line x1="127.7" y1="186.8" x2="82.2" y2="148.6" stroke="#F98561"/>
+    <line x1="154.1" y1="161.6" x2="116.7" y2="112.8" stroke="#F8796A"/>
+    <line x1="185.2" y1="142.7" x2="158.4" y2="85.1" stroke="#F27478"/>
+    <line x1="219.8" y1="130.9" x2="205.6" y2="67.0" stroke="#EC7086"/>
+    <line x1="256.0" y1="127.0" x2="256.0" y2="59.4" stroke="#E66B94"/>
+    <line x1="292.2" y1="130.9" x2="306.4" y2="67.0" stroke="#EC7086"/>
+    <line x1="326.8" y1="142.7" x2="353.6" y2="85.1" stroke="#F27478"/>
+    <line x1="357.9" y1="161.6" x2="395.3" y2="112.8" stroke="#F8796A"/>
+    <line x1="384.3" y1="186.8" x2="429.8" y2="148.6" stroke="#F98561"/>
+    <line x1="404.5" y1="217.1" x2="455.4" y2="190.6" stroke="#F79459"/>
+    <line x1="417.7" y1="251.1" x2="471.1" y2="236.8" stroke="#F5A352"/>
   </g>
-  <g stroke="#DDBA8D" stroke-width="16" stroke-linecap="round">
-    <path d="M256 92v28M198 112l16 22M314 112l-16 22M154 168h30M328 168h30M176 286l-20 22M336 286l20 22"/>
+  <g mask="url(#cut)">
+    <path d="M102.4 294.4 A153.6 153.6 0 0 0 409.6 294.4 Z" fill="url(#sun)"/>
+    <line x1="53.2" y1="294.4" x2="458.8" y2="294.4" stroke="#F5B540" stroke-width="9.5" stroke-linecap="round"/>
   </g>
-  <g stroke="#E7CBA6" stroke-width="16" stroke-linecap="round">
-    <path d="M232 168l48 92M280 168l-48 92"/>
-    <circle cx="228" cy="286" r="22"/>
-    <circle cx="284" cy="286" r="22"/>
+  <g stroke-linecap="round">
+    <circle cx="191.5" cy="352.8" r="35.3" fill="none" stroke="#F5B540" stroke-width="18.1"/>
+    <line x1="256.0" y1="286.0" x2="216.0" y2="327.4" stroke="#F5B540" stroke-width="24.5" stroke-linecap="round"/>
+    <circle cx="320.5" cy="352.8" r="35.3" fill="none" stroke="#F5B540" stroke-width="18.1"/>
+    <line x1="256.0" y1="286.0" x2="296.0" y2="327.4" stroke="#F5B540" stroke-width="24.5" stroke-linecap="round"/>
   </g>
 </svg>

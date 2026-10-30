@@ -1,14 +1,15 @@
 import AppKit
 
-/// Tantalum-themed app icon: gold line art on a warm near-black ground.
+/// Sunset sun cut by a pair of scissors.
 /// Coordinates are top-left origin, y grows downward.
 enum IconArtwork {
-    /// #d4a574
-    private static let tantalumGold = CGColor(srgbRed: 0.831, green: 0.647, blue: 0.455, alpha: 1)
-    /// #ddba8d
-    private static let tantalumSpoke = CGColor(srgbRed: 0.867, green: 0.729, blue: 0.553, alpha: 1)
-    /// #e7cba6
-    private static let tantalumHighlight = CGColor(srgbRed: 0.906, green: 0.796, blue: 0.651, alpha: 1)
+    private static let rayDegrees: [CGFloat] = [-75, -62.5, -50, -37.5, -25, -12.5, 0, 12.5, 25, 37.5, 50, 62.5, 75]
+
+    /// How far each part reaches from the sun center, in sun radii. +y is down.
+    private static let rayReach: CGFloat = 1.66
+    private static let ringReach: CGFloat = 0.70
+    private static let horizonReach: CGFloat = 1.32
+
     static func drawAppIcon(into context: CGContext, size: CGFloat, rounded: Bool) {
         context.saveGState()
         if rounded {
@@ -21,207 +22,234 @@ enum IconArtwork {
             ))
             context.clip()
         }
-
-        drawSunsetBackground(into: context, size: size)
-        drawLineBulb(into: context, size: size)
+        drawBackground(into: context, size: size)
+        drawMark(into: context, size: size, template: false)
         context.restoreGState()
     }
 
-    /// Menu-bar mark: a bulb with a pair of scissors. No brightness rays — they crowded the blades at this size.
+    /// Menu-bar mark. Drawn in black so it can be used as a template image.
     static func drawTemplate(into context: CGContext, size: CGFloat) {
-        context.setStrokeColor(gray: 0, alpha: 1)
-        context.setFillColor(gray: 0, alpha: 1)
+        drawMark(into: context, size: size, template: true)
+    }
+
+    private static func drawMark(into context: CGContext, size: CGFloat, template: Bool) {
+        let placed = placement(size: size, template: template)
+        let center = placed.center
+        let radius = placed.radius
+
+        context.saveGState()
         context.setLineCap(.round)
         context.setLineJoin(.round)
 
-        let line = max(1.05, size * 0.05)
-        context.setLineWidth(line)
-
-        let radius = size * 0.34
-        let center = templateCenter(size: size, radius: radius, line: line)
-        let glass = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        context.strokeEllipse(in: glass.insetBy(dx: line / 2, dy: line / 2))
-
-        drawMenuBarScissors(into: context, center: center, radius: radius)
-        drawMenuBarBase(into: context, center: center, radius: radius, line: line)
+        drawRays(into: context, center: center, radius: radius, template: template)
+        drawSun(into: context, center: center, radius: radius, template: template)
+        drawHorizon(into: context, center: center, radius: radius, template: template)
+        cutBlades(into: context, size: size, center: center, radius: radius, template: template)
+        drawHandles(into: context, center: center, radius: radius, template: template)
+        context.restoreGState()
     }
 
-    /// Equal space above the glass and below the screw, so the mark sits with the other status icons.
-    private static func templateCenter(size: CGFloat, radius: CGFloat, line: CGFloat) -> CGPoint {
-        let topReach = radius + line * 0.55
-        let bottomReach = radius * 1.18 + line * 0.5
-        return CGPoint(x: size * 0.5, y: (size + topReach - bottomReach) / 2)
-    }
-
-    /// Open blades above two finger holes, drawn thin enough that the holes stay open in the menu bar.
-    private static func drawMenuBarScissors(
-        into context: CGContext,
-        center: CGPoint,
-        radius: CGFloat
-    ) {
-        let pivot = CGPoint(x: center.x, y: center.y - radius * 0.06)
-        let open = CGFloat(42) * .pi / 180
-        let blade = radius * 0.64
-        let bladeWidth = max(1.0, radius * 0.15)
-
-        for sign in [-1, 1] as [CGFloat] {
-            context.setLineWidth(bladeWidth)
-            let tip = CGPoint(
-                x: pivot.x + sign * sin(open) * blade,
-                y: pivot.y - cos(open) * blade
-            )
-            let tail = CGPoint(
-                x: pivot.x - sign * sin(open) * radius * 0.18,
-                y: pivot.y + cos(open) * radius * 0.18
-            )
-            context.move(to: tip)
-            context.addLine(to: tail)
-            context.strokePath()
-
-            let ringRadius = radius * 0.34
-            let ringStroke = max(0.85, radius * 0.12)
-            let ringCenter = CGPoint(x: center.x - sign * radius * 0.46, y: center.y + radius * 0.38)
-            context.setLineWidth(ringStroke)
-            context.strokeEllipse(in: CGRect(
-                x: ringCenter.x - ringRadius,
-                y: ringCenter.y - ringRadius,
-                width: ringRadius * 2,
-                height: ringRadius * 2
-            ).insetBy(dx: ringStroke / 2, dy: ringStroke / 2))
+    private static func placement(size: CGFloat, template: Bool) -> (center: CGPoint, radius: CGFloat) {
+        if !template {
+            return (CGPoint(x: size * 0.5, y: size * 0.575), size * 0.30)
         }
+        let pad = size * 0.05
+        let avail = size - pad * 2
+        let radius = min(avail / (horizonReach * 2), avail / (rayReach + ringReach))
+        let boundsH = (rayReach + ringReach) * radius
+        let centerY = (size - boundsH) / 2 + rayReach * radius
+        return (CGPoint(x: size * 0.5, y: centerY), radius)
     }
 
-    /// Just the neck where the glass meets the screw, not the whole base.
-    private static func drawMenuBarBase(into context: CGContext, center: CGPoint, radius: CGFloat, line: CGFloat) {
-        context.setLineWidth(line)
-        let top = center.y + radius - line * 0.2
-        let drop = radius * 0.16
-        let shoulder = radius * 0.28
-        let hip = radius * 0.38
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: center.x - shoulder, y: top))
-        path.addLine(to: CGPoint(x: center.x - hip, y: top + drop))
-        path.addLine(to: CGPoint(x: center.x + hip, y: top + drop))
-        path.addLine(to: CGPoint(x: center.x + shoulder, y: top))
-        context.addPath(path)
-        context.strokePath()
-    }
-
-    private static func drawSunsetBackground(into context: CGContext, size: CGFloat) {
+    private static func drawBackground(into context: CGContext, size: CGFloat) {
         let colors = [
-            CGColor(srgbRed: 0.165, green: 0.153, blue: 0.141, alpha: 1),
-            CGColor(srgbRed: 0.071, green: 0.067, blue: 0.059, alpha: 1),
+            color(0.31, 0.145, 0.24),
+            color(0.16, 0.09, 0.24),
+            color(0.07, 0.045, 0.24),
         ] as CFArray
         guard let gradient = CGGradient(
             colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
             colors: colors,
-            locations: [0, 1]
+            locations: [0, 0.48, 1]
         ) else { return }
-        let center = CGPoint(x: size * 0.5, y: size * 0.42)
-        context.drawRadialGradient(
+        context.drawLinearGradient(
             gradient,
-            startCenter: center,
-            startRadius: 0,
-            endCenter: center,
-            endRadius: size * 0.72,
-            options: [.drawsAfterEndLocation]
+            start: .zero,
+            end: CGPoint(x: 0, y: size),
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
         )
     }
 
-    private static func drawLineBulb(into context: CGContext, size: CGFloat) {
-        let line = max(size * 0.03, size < 20 ? 1 : 0)
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-        context.setLineWidth(line)
-        context.setStrokeColor(tantalumGold)
-        context.setFillColor(tantalumGold)
-
-        let center = CGPoint(x: size * 0.50, y: size * 0.43)
-        let radius = size * 0.20
-        let glass = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        context.strokeEllipse(in: glass.insetBy(dx: line / 2, dy: line / 2))
-
-        context.setStrokeColor(tantalumSpoke)
-        drawRays(into: context, center: center, radius: radius, line: line, lengthFactor: 0.34)
-        context.setStrokeColor(tantalumHighlight)
-        drawLineScissors(into: context, center: center, radius: radius, line: line)
-        context.setStrokeColor(tantalumGold)
-        drawScrewBase(into: context, center: center, radius: radius, line: line)
-    }
-
-    private static func drawRays(into context: CGContext, center: CGPoint, radius: CGFloat, line: CGFloat, lengthFactor: CGFloat) {
-        let gap = line * 0.95
-        let length = radius * lengthFactor
-        let degrees: [CGFloat] = [-125, -78, -38, 0, 38, 78, 125]
-        for deg in degrees {
+    private static func drawRays(into context: CGContext, center: CGPoint, radius: CGFloat, template: Bool) {
+        let width = radius * (template ? 0.13 : 0.108)
+        context.setLineWidth(width)
+        for deg in rayDegrees {
             let angle = deg * .pi / 180
-            let dx = sin(angle)
-            let dy = -cos(angle)
-            let inner = radius + gap
+            let dir = CGVector(dx: sin(angle), dy: -cos(angle))
+            let t = abs(deg) / 75
+            let length = radius * (0.44 - 0.08 * t)
+            let inner = radius * 1.09
             let outer = inner + length
-            context.move(to: CGPoint(x: center.x + dx * inner, y: center.y + dy * inner))
-            context.addLine(to: CGPoint(x: center.x + dx * outer, y: center.y + dy * outer))
+            if template {
+                context.setStrokeColor(gray: 0, alpha: 1)
+            } else {
+                context.setStrokeColor(rayColor(t))
+            }
+            context.move(to: CGPoint(x: center.x + dir.dx * inner, y: center.y + dir.dy * inner))
+            context.addLine(to: CGPoint(x: center.x + dir.dx * outer, y: center.y + dir.dy * outer))
             context.strokePath()
         }
     }
 
-    private static func drawLineScissors(into context: CGContext, center: CGPoint, radius: CGFloat, line: CGFloat) {
-        let pivot = CGPoint(x: center.x, y: center.y + radius * 0.06)
-        let angle = CGFloat(28) * .pi / 180
-        let blade = radius * 0.58
-        let handle = radius * 0.50
-        let ringRadius = radius * 0.20
-
-        for sign in [-1, 1] as [CGFloat] {
-            let tip = CGPoint(
-                x: pivot.x + sign * sin(angle) * blade,
-                y: pivot.y - cos(angle) * blade
-            )
-            let handleCenter = CGPoint(
-                x: pivot.x - sign * sin(angle) * handle,
-                y: pivot.y + cos(angle) * handle
-            )
-            let armEnd = CGPoint(
-                x: pivot.x - sign * sin(angle) * (handle - ringRadius),
-                y: pivot.y + cos(angle) * (handle - ringRadius)
-            )
-            context.move(to: tip)
-            context.addLine(to: armEnd)
-            context.strokePath()
-
-            let ring = CGRect(
-                x: handleCenter.x - ringRadius,
-                y: handleCenter.y - ringRadius,
-                width: ringRadius * 2,
-                height: ringRadius * 2
-            )
-            context.strokeEllipse(in: ring.insetBy(dx: line / 2, dy: line / 2))
+    private static func drawSun(into context: CGContext, center: CGPoint, radius: CGFloat, template: Bool) {
+        let sun = CGMutablePath()
+        sun.addArc(center: center, radius: radius, startAngle: .pi, endAngle: 2 * .pi, clockwise: false)
+        sun.closeSubpath()
+        if template {
+            context.setFillColor(gray: 0, alpha: 1)
+            context.addPath(sun)
+            context.fillPath()
+            return
         }
-    }
-
-    private static func drawScrewBase(into context: CGContext, center: CGPoint, radius: CGFloat, line: CGFloat) {
-        let top = center.y + radius - line * 0.35
-        let shoulder = radius * 0.22
-        let hip = radius * 0.42
-        let sideBottom = top + radius * 0.52
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: center.x - shoulder, y: top))
-        path.addLine(to: CGPoint(x: center.x - hip, y: sideBottom))
-        path.addQuadCurve(
-            to: CGPoint(x: center.x + hip, y: sideBottom),
-            control: CGPoint(x: center.x, y: sideBottom + radius * 0.20)
+        let colors = [
+            color(0.93, 0.43, 0.56),
+            color(0.98, 0.47, 0.39),
+            color(0.96, 0.70, 0.26),
+        ] as CFArray
+        guard let gradient = CGGradient(
+            colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+            colors: colors,
+            locations: [0, 0.46, 1]
+        ) else { return }
+        context.saveGState()
+        context.addPath(sun)
+        context.clip()
+        context.drawLinearGradient(
+            gradient,
+            start: CGPoint(x: center.x, y: center.y - radius),
+            end: CGPoint(x: center.x, y: center.y),
+            options: []
         )
-        path.addLine(to: CGPoint(x: center.x + shoulder, y: top))
-        context.addPath(path)
-        context.strokePath()
+        context.restoreGState()
+    }
 
-        for fraction in [0.40, 0.68] as [CGFloat] {
-            let y = top + (sideBottom - top) * fraction
-            let half = shoulder + (hip - shoulder) * fraction
-            let inset = line * 1.35
-            context.move(to: CGPoint(x: center.x - half + inset, y: y))
-            context.addLine(to: CGPoint(x: center.x + half - inset, y: y))
-            context.strokePath()
+    private static func drawHorizon(into context: CGContext, center: CGPoint, radius: CGFloat, template: Bool) {
+        context.setLineWidth(radius * (template ? 0.085 : 0.062))
+        if template {
+            context.setStrokeColor(gray: 0, alpha: 1)
+        } else {
+            context.setStrokeColor(metal)
         }
+        let half = radius * horizonReach
+        context.move(to: CGPoint(x: center.x - half, y: center.y))
+        context.addLine(to: CGPoint(x: center.x + half, y: center.y))
+        context.strokePath()
+    }
+
+    /// Dark blades stop at the horizon. The gold handles continue below it.
+    private static func cutBlades(into context: CGContext, size: CGFloat, center: CGPoint, radius: CGFloat, template: Bool) {
+        let blades = bladePath(center: center, radius: radius, template: template)
+        let aboveHorizon = CGRect(x: -size, y: -size, width: size * 3, height: center.y + radius * 0.08 + size)
+        context.saveGState()
+        context.clip(to: aboveHorizon)
+        if template {
+            context.setBlendMode(.destinationOut)
+            context.addPath(blades)
+            context.fillPath()
+        } else {
+            context.addPath(blades)
+            context.clip()
+            drawBackground(into: context, size: size)
+        }
+        context.restoreGState()
+    }
+
+    private static func bladePath(center: CGPoint, radius: CGFloat, template: Bool) -> CGPath {
+        let path = CGMutablePath()
+        let cross = CGPoint(x: center.x, y: center.y - radius * 0.20)
+        let width = radius * (template ? 0.20 : 0.155)
+        let up = radius * 0.74
+        let down = radius * 0.28
+        for sign in [-1, 1] as [CGFloat] {
+            let angle = sign * 24 * .pi / 180
+            let dir = CGVector(dx: sin(angle), dy: -cos(angle))
+            let tip = CGPoint(x: cross.x + dir.dx * up, y: cross.y + dir.dy * up)
+            let tail = CGPoint(x: cross.x - dir.dx * down, y: cross.y - dir.dy * down)
+            let line = CGMutablePath()
+            line.move(to: tail)
+            line.addLine(to: tip)
+            path.addPath(line.copy(
+                strokingWithWidth: width,
+                lineCap: .round,
+                lineJoin: .round,
+                miterLimit: 2
+            ))
+        }
+        return path
+    }
+
+    private static func drawHandles(into context: CGContext, center: CGPoint, radius: CGFloat, template: Bool) {
+        let stroke = radius * (template ? 0.15 : 0.118)
+        let ringRadius = radius * (template ? 0.21 : 0.23)
+        let apex = CGPoint(x: center.x, y: center.y - radius * 0.055)
+        let neck = stroke * 1.35
+        if template {
+            context.setFillColor(gray: 0, alpha: 1)
+        } else {
+            context.setFillColor(metal)
+        }
+        for sign in [-1, 1] as [CGFloat] {
+            let ringCenter = CGPoint(
+                x: center.x + sign * radius * 0.42,
+                y: center.y + radius * 0.38
+            )
+            let circle = CGPath(
+                ellipseIn: CGRect(
+                    x: ringCenter.x - ringRadius,
+                    y: ringCenter.y - ringRadius,
+                    width: ringRadius * 2,
+                    height: ringRadius * 2
+                ),
+                transform: nil
+            )
+            context.addPath(circle.copy(strokingWithWidth: stroke, lineCap: .round, lineJoin: .round, miterLimit: 2))
+            let dx = ringCenter.x - apex.x
+            let dy = ringCenter.y - apex.y
+            let len = hypot(dx, dy)
+            let attach = CGPoint(
+                x: ringCenter.x - dx / len * ringRadius,
+                y: ringCenter.y - dy / len * ringRadius
+            )
+            let arm = CGMutablePath()
+            arm.move(to: apex)
+            arm.addLine(to: attach)
+            context.addPath(arm.copy(strokingWithWidth: neck, lineCap: .round, lineJoin: .round, miterLimit: 2))
+        }
+        context.fillPath()
+    }
+
+    private static func rayColor(_ t: CGFloat) -> CGColor {
+        let pink = (CGFloat(0.90), CGFloat(0.42), CGFloat(0.58))
+        let coral = (CGFloat(0.98), CGFloat(0.48), CGFloat(0.40))
+        let gold = (CGFloat(0.96), CGFloat(0.64), CGFloat(0.32))
+        if t < 0.55 {
+            return mix(pink, coral, t / 0.55)
+        }
+        return mix(coral, gold, (t - 0.55) / 0.45)
+    }
+
+    private static let metal = CGColor(srgbRed: 0.96, green: 0.71, blue: 0.25, alpha: 1)
+
+    private static func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGColor {
+        CGColor(srgbRed: r, green: g, blue: b, alpha: 1)
+    }
+
+    private static func mix(_ a: (CGFloat, CGFloat, CGFloat), _ b: (CGFloat, CGFloat, CGFloat), _ t: CGFloat) -> CGColor {
+        let clamped = min(1, max(0, t))
+        return color(
+            a.0 + (b.0 - a.0) * clamped,
+            a.1 + (b.1 - a.1) * clamped,
+            a.2 + (b.2 - a.2) * clamped
+        )
     }
 }

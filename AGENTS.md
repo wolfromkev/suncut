@@ -1,4 +1,4 @@
-# AGENTS.md — Umbrella Helper
+# AGENTS.md — Suncut
 
 ## Stack
 - Native macOS 14+ menu-bar app (SwiftUI + AppKit)

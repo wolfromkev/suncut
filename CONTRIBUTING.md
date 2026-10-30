@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in Umbrella Helper.
+Thanks for your interest in Suncut.
 
 ## Build
 

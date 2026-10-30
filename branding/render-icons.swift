@@ -80,5 +80,5 @@ for (name, size) in appIconSizes {
     IconRenderer.writePNG(at: appIconDir.appendingPathComponent(name).path, size: size, rounded: false, template: false, backdrop: nil)
 }
 
-print("Rendered scissors and lightbulb icons.")
+print("Rendered sunset scissors icons.")
 }

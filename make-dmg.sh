@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$ROOT/UmbrellaHelper.xcodeproj"
 SCHEME="UmbrellaHelper"
-APP_NAME="Umbrella Helper"
+APP_NAME="Suncut"
 BUILD_DIR="$ROOT/build"
 DERIVED="$BUILD_DIR/DerivedData"
 ENTITLEMENTS="$ROOT/UmbrellaHelper/UmbrellaHelper.entitlements"
@@ -65,21 +65,21 @@ EXECUTABLE="$BUILT_APP/Contents/MacOS/${APP_NAME}"
 echo "Architectures: $(lipo -archs "$EXECUTABLE")"
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT_APP/Contents/Info.plist")"
-DMG="$BUILD_DIR/Umbrella Helper ${VERSION}.dmg"
+DMG="$BUILD_DIR/Suncut ${VERSION}.dmg"
 
-STAGING="$(mktemp -d "${TMPDIR:-/tmp}/umbrella-dmg.XXXXXX")"
+STAGING="$(mktemp -d "${TMPDIR:-/tmp}/suncut-dmg.XXXXXX")"
 ditto "$BUILT_APP" "$STAGING/${APP_NAME}.app"
 ln -s /Applications "$STAGING/Applications"
 cat > "$STAGING/Read Me.txt" <<'EOF'
-Umbrella Helper
+Suncut
 
-1. Drag Umbrella Helper onto the Applications folder.
+1. Drag Suncut onto the Applications folder.
 2. Eject this disk image.
-3. In Applications, right-click Umbrella Helper and choose Open, then Open again.
+3. In Applications, right-click Suncut and choose Open, then Open again.
    macOS blocks apps that did not come from the App Store the first time you open them.
 4. If macOS says the app is damaged, open Terminal and run:
 
-   xattr -cr "/Applications/Umbrella Helper.app"
+   xattr -cr "/Applications/Suncut.app"
 
    Then right-click the app and choose Open again.
 5. Grant Screen Recording when asked (and Microphone if you record audio).
@@ -93,19 +93,19 @@ rm -f "$DMG"
 if diskutil image create from --help >/dev/null 2>&1; then
   diskutil image create from \
     --format UDZO \
-    --volumeName "Umbrella Helper" \
+    --volumeName "Suncut" \
     "$STAGING" \
     "$DMG"
 else
   hdiutil create \
-    -volname "Umbrella Helper" \
+    -volname "Suncut" \
     -srcfolder "$STAGING" \
     -ov \
     -format UDZO \
     "$DMG"
 fi
 
-STABLE="$BUILD_DIR/Umbrella-Helper.dmg"
+STABLE="$BUILD_DIR/Suncut.dmg"
 cp -f "$DMG" "$STABLE"
 
 echo ""
