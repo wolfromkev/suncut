@@ -28,6 +28,7 @@
 		B10000000000000000000047 /* SnipPermissionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000048 /* SnipPermissionPrompt.swift */; };
 		B10000000000000000000033 /* AppRelauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000035 /* AppRelauncher.swift */; };
 		B10000000000000000000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000010 /* Assets.xcassets */; };
+		B10000000000000000000049 /* Shutter.wav in Resources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000049 /* Shutter.wav */; };
 		B10000000000000000000046 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000047 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -43,6 +44,7 @@
 		F10000000000000000000007 /* GlobalHotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotKey.swift; sourceTree = "<group>"; };
 		F10000000000000000000008 /* LaunchAtLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLogin.swift; sourceTree = "<group>"; };
 		F10000000000000000000010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F10000000000000000000049 /* Shutter.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Shutter.wav; sourceTree = "<group>"; };
 		F10000000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F10000000000000000000012 /* UmbrellaHelper.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = UmbrellaHelper.entitlements; sourceTree = "<group>"; };
 		F10000000000000000000046 /* UmbrellaHelper-AppStore.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "UmbrellaHelper-AppStore.entitlements"; sourceTree = "<group>"; };
@@ -147,6 +149,7 @@
 			isa = PBXGroup;
 			children = (
 				F10000000000000000000010 /* Assets.xcassets */,
+				F10000000000000000000049 /* Shutter.wav */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -214,6 +217,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B10000000000000000000010 /* Assets.xcassets in Resources */,
+				B10000000000000000000049 /* Shutter.wav in Resources */,
 				B10000000000000000000046 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -312,7 +316,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kevinwolfrom.umbrella;
 				PRODUCT_NAME = "Umbrella Helper";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -336,7 +340,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kevinwolfrom.umbrella;
 				PRODUCT_NAME = "Umbrella Helper";
 				SWIFT_EMIT_LOC_STRINGS = YES;

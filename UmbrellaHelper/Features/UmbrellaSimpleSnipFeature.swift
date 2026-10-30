@@ -1532,25 +1532,32 @@ enum UmbrellaRecordingSoundFeedback {
 }
 
 enum UmbrellaSnipSoundFeedback {
-    private static let purr: NSSound? = {
-        let sound = NSSound(named: NSSound.Name("Purr"))
-        sound?.volume = 0.9
-        return sound
-    }()
+    /// Own copies, played on the next turn. Playback inside the mouse-tracking
+    /// run loop is cut off as soon as that loop ends.
+    private static let shutter: NSSound? = bundledSound(named: "Shutter", ext: "wav")
 
     static func playScreenshot() {
-        playPurr()
+        play(shutter)
     }
 
     static func playTextCopy() {
-        playPurr()
+        play(shutter)
     }
 
-    private static func playPurr() {
-        guard let purr else { return }
-        purr.stop()
-        purr.currentTime = 0
-        purr.play()
+    private static func bundledSound(named name: String, ext: String) -> NSSound? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: ext) else { return nil }
+        let sound = NSSound(contentsOf: url, byReference: false)
+        sound?.volume = 1
+        return sound
+    }
+
+    private static func play(_ sound: NSSound?) {
+        DispatchQueue.main.async {
+            guard let sound else { return }
+            sound.stop()
+            sound.currentTime = 0
+            sound.play()
+        }
     }
 }
 
