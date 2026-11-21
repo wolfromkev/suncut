@@ -41,7 +41,7 @@ Suncut lives in the menu bar for screenshots, screen recording, and display warm
 
 SimpleSnip takes an area, a window, or the full screen, copies the image, and can read the text in a selection. You can also record an area with system audio or the microphone.
 
-Brightness controls warmth and brightness, saves presets, and includes Film Mode to dim external displays. An optional daytime curve moves from a night floor to a midday peak, using times you set or your location for sunrise and sunset.
+Brightness controls warmth and brightness, saves presets, and includes Film Mode to dim every display. An optional daytime curve moves from a night floor to a midday peak, using times you set or your location for sunrise and sunset.
 
 Launch at login and the global hotkeys are included.
 
@@ -51,7 +51,7 @@ screenshot,screen recording,brightness,warmth,menu bar,snip,OCR,hotkey
 
 **Review notes**
 
-Menu bar utility. Screen Recording is for screenshots, window capture, text recognition, and area recording. The microphone is used only when Record microphone is on. Location is used only when the daytime curve follows sunrise and sunset. No account is required. Click the menu bar icon, take an area snip, and move the brightness slider. Film Mode dims external displays and restores them when it is turned off or the app quits.
+Menu bar utility. Screen Recording is for screenshots, window capture, text recognition, and area recording. The microphone is used only when Record microphone is on. Location is used only when the daytime curve follows sunrise and sunset. No account is required. Click the menu bar icon, take an area snip, and move the brightness slider. Film Mode dims every display and restores them when it is turned off or the app quits.
 
 Upload again only if build 5 is missing. Use release Xcode (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`), not the beta. Commands are in `docs/PUBLISHING.md`. The App Store configuration’s version is 1.0; the GitHub Release configuration is 1.0.11.
 

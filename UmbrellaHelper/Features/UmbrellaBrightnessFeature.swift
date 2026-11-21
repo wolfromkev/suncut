@@ -43,8 +43,8 @@ struct UmbrellaSunPreset: Codable, Equatable, Identifiable {
 
 
 private enum UmbrellaBlueLightManager {
-    /// Film Mode floor. Below 10% the pointer is easy to lose on an external display.
-    private static let filmModeExternalChannels: (Float, Float, Float) = (0.10, 0.10, 0.10)
+    /// Film Mode floor on every online display. Below 10% the pointer is easy to lose.
+    private static let filmModeChannels: (Float, Float, Float) = (0.10, 0.10, 0.10)
 
     static func apply(colorTemp: Int, brightness: Float, darkroom: Bool, filmMode: Bool) {
         let dim = max(UmbrellaBrightnessFeature.minimumBrightness, min(1, brightness))
@@ -56,21 +56,15 @@ private enum UmbrellaBlueLightManager {
             channels = (multipliers.0 * dim, multipliers.1 * dim, multipliers.2 * dim)
         }
 
+        let appliedChannels = filmMode ? filmModeChannels : channels
         for display in onlineDisplayIDs() {
-            let applied = filmMode && !isBuiltInDisplay(display)
-                ? filmModeExternalChannels
-                : channels
             CGSetDisplayTransferByFormula(
                 display,
-                0, applied.0, 1,
-                0, applied.1, 1,
-                0, applied.2, 1
+                0, appliedChannels.0, 1,
+                0, appliedChannels.1, 1,
+                0, appliedChannels.2, 1
             )
         }
-    }
-
-    private static func isBuiltInDisplay(_ displayID: CGDirectDisplayID) -> Bool {
-        CGDisplayIsBuiltin(displayID) != 0
     }
 
     static func reset() {
@@ -261,7 +255,7 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         // Always restore system gamma first (covers force-quit while Film Mode was on).
         UmbrellaBlueLightManager.reset()
         if defaults.bool(forKey: filmModeDirtyKey) {
-            // Unclean exit: don't re-black externals — leave Film Mode off until the user toggles it.
+            // Unclean exit: don't dim the displays again — leave Film Mode off until the user toggles it.
             isFilmModeEnabled = false
             defaults.set(false, forKey: filmModeDirtyKey)
             defaults.set(false, forKey: "umbrella.sunscreen.filmMode")
