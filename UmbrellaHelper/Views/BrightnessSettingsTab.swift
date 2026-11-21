@@ -5,13 +5,17 @@ struct BrightnessSettingsTab: View {
     @ObservedObject var feature: UmbrellaBrightnessFeature
     var onPresetsChanged: () -> Void
 
-    @State private var isAdjustingBrightness = false
     @State private var expandedPresetID: String?
     @State private var nameFocusID: String?
     @State private var nameSelectAll = false
     @State private var deletePrompt: PresetDeletePrompt?
     @State private var openMenuID: String?
     @State private var menuAnchors: [String: CGRect] = [:]
+    @State private var openControlID: String?
+    @State private var controlAnchors: [String: CGRect] = [:]
+    @State private var sunriseDraft = ""
+    @State private var sunsetDraft = ""
+    @FocusState private var focusedTime: ScheduleTimeField?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -22,11 +26,19 @@ struct BrightnessSettingsTab: View {
                 powerSection
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(BrightnessChrome.window)
 
             if let openMenuID,
                let preset = feature.presets.first(where: { $0.id == openMenuID }),
                let anchor = menuAnchors[openMenuID] {
                 presetActionLayer(for: preset, anchor: anchor)
+            }
+
+            if feature.isAutoMode,
+               let openControlID,
+               let anchor = controlAnchors[openControlID] {
+                controlMenuLayer(id: openControlID, anchor: anchor)
             }
 
             if let deletePrompt {
@@ -39,12 +51,17 @@ struct BrightnessSettingsTab: View {
             }
         }
         .coordinateSpace(name: "brightnessTab")
+        .environment(\.colorScheme, .dark)
+        .tint(BrightnessChrome.accent)
         .onPreferenceChange(PresetMenuAnchorKey.self) { menuAnchors = $0 }
+        .onPreferenceChange(BrightnessControlAnchorKey.self) { controlAnchors = $0 }
         .onExitCommand {
             if deletePrompt != nil {
                 deletePrompt = nil
             } else if openMenuID != nil {
                 openMenuID = nil
+            } else if openControlID != nil {
+                openControlID = nil
             }
         }
     }
@@ -61,14 +78,10 @@ struct BrightnessSettingsTab: View {
                 percentText: "\(displayPercent)%",
                 value: Binding(
                     get: { Double(feature.brightness) },
-                    set: { newValue in
-                        guard isAdjustingBrightness else { return }
-                        feature.setBrightness(Float(newValue), commit: false)
-                    }
+                    set: { feature.setBrightness(Float($0), commit: false) }
                 ),
                 range: Double(UmbrellaBrightnessFeature.minimumBrightness)...1,
                 onEditingChanged: { editing in
-                    isAdjustingBrightness = editing
                     if !editing { feature.commitPendingChanges() }
                 }
             )
@@ -205,8 +218,10 @@ struct BrightnessSettingsTab: View {
                             ),
                             useLocation: feature.useLocationSchedule,
                             showsNow: feature.isAutoMode,
+                            openControlID: openControlID,
                             onSunrise: commitSunrise,
-                            onSunset: commitSunset
+                            onSunset: commitSunset,
+                            onOpenControl: toggleControl
                         )
                     }
                 }
@@ -232,30 +247,16 @@ struct BrightnessSettingsTab: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
-                DatePicker(
-                    "Sunrise",
-                    selection: sunriseDate,
-                    displayedComponents: .hourAndMinute
-                )
-                .datePickerStyle(.field)
-                .opacity(feature.useLocationSchedule ? 0.55 : 1)
-                .allowsHitTesting(!feature.useLocationSchedule)
-                DatePicker(
-                    "Sunset",
-                    selection: sunsetDate,
-                    displayedComponents: .hourAndMinute
-                )
-                .datePickerStyle(.field)
-                .opacity(feature.useLocationSchedule ? 0.55 : 1)
-                .allowsHitTesting(!feature.useLocationSchedule)
+                timeField("Sunrise", minutes: feature.sunriseMinutes, field: .sunrise, commit: commitSunrise)
+                timeField("Sunset", minutes: feature.sunsetMinutes, field: .sunset, commit: commitSunset)
+            }
+            .onChange(of: focusedTime) { old, _ in
+                if old == .sunrise { commitTimeDraft(.sunrise) }
+                if old == .sunset { commitTimeDraft(.sunset) }
             }
             .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
 
-            Picker(selection: twilightSelection) {
-                ForEach(twilightChoices, id: \.self) { minutes in
-                    Text(twilightLabel(minutes)).tag(minutes)
-                }
-            } label: {
+            HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Twilight")
                     Text("How long brightness ramps before sunrise and after sunset. Shaded on the graph.")
@@ -263,8 +264,14 @@ struct BrightnessSettingsTab: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                Spacer(minLength: 12)
+                MockPopupButton(
+                    title: twilightLabel(feature.transitionMinutes),
+                    isOpen: openControlID == "twilight",
+                    action: { toggleControl("twilight") }
+                )
+                .background(controlAnchor("twilight"))
             }
-            .pickerStyle(.menu)
             .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
         } header: {
             Text("Schedule")
@@ -310,6 +317,7 @@ struct BrightnessSettingsTab: View {
                     onToggle: { togglePreset(preset.id) },
                     onEdit: { editPreset(preset.id) },
                     onOpenMenu: {
+                        openControlID = nil
                         openMenuID = openMenuID == preset.id ? nil : preset.id
                     },
                     onConsumeNameFocus: {
@@ -385,26 +393,185 @@ struct BrightnessSettingsTab: View {
         )
     }
 
-    private var sunriseDate: Binding<Date> {
+    private func toggleControl(_ id: String) {
+        openMenuID = nil
+        openControlID = openControlID == id ? nil : id
+    }
+
+    private func timeField(
+        _ title: String,
+        minutes: Int,
+        field: ScheduleTimeField,
+        commit: @escaping (Int) -> Void
+    ) -> some View {
+        let editable = !feature.useLocationSchedule
+        return HStack(spacing: 7) {
+            Text(title)
+                .foregroundStyle(BrightnessChrome.secondaryText)
+            TextField(title, text: timeDraft(field, minutes: minutes))
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .multilineTextAlignment(.center)
+                .frame(width: 84, height: 24)
+                .padding(.horizontal, 7)
+                .foregroundStyle(BrightnessChrome.text)
+                .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(
+                            focusedTime == field ? BrightnessChrome.accent : Color.white.opacity(0.12),
+                            lineWidth: focusedTime == field ? 2 : 1
+                        )
+                )
+                .focused($focusedTime, equals: field)
+                .onSubmit { commitTimeDraft(field) }
+                .accessibilityLabel(title)
+                .accessibilityValue(timeText(minutes))
+                .accessibilityAdjustableAction { direction in
+                    guard editable else { return }
+                    let delta = direction == .increment ? 5 : -5
+                    commit(minutes + delta)
+                }
+        }
+        .opacity(editable ? 1 : 0.55)
+        .allowsHitTesting(editable)
+    }
+
+    private func timeDraft(_ field: ScheduleTimeField, minutes: Int) -> Binding<String> {
         Binding(
-            get: { date(from: feature.sunriseMinutes) },
-            set: { newDate in
-                let minutes = UmbrellaSolarSchedule.minutesOfDay(from: newDate)
-                guard minutes != feature.sunriseMinutes else { return }
-                commitSunrise(minutes)
+            get: {
+                if focusedTime == field {
+                    return field == .sunrise ? sunriseDraft : sunsetDraft
+                }
+                return timeText(minutes)
+            },
+            set: { newValue in
+                if field == .sunrise {
+                    sunriseDraft = newValue
+                } else {
+                    sunsetDraft = newValue
+                }
             }
         )
     }
 
-    private var sunsetDate: Binding<Date> {
-        Binding(
-            get: { date(from: feature.sunsetMinutes) },
-            set: { newDate in
-                let minutes = UmbrellaSolarSchedule.minutesOfDay(from: newDate)
-                guard minutes != feature.sunsetMinutes else { return }
-                commitSunset(minutes)
+    private func commitTimeDraft(_ field: ScheduleTimeField) {
+        let text = field == .sunrise ? sunriseDraft : sunsetDraft
+        guard let minutes = minutes(fromTime: text) else { return }
+        if field == .sunrise {
+            commitSunrise(minutes)
+            sunriseDraft = timeText(feature.sunriseMinutes)
+        } else {
+            commitSunset(minutes)
+            sunsetDraft = timeText(feature.sunsetMinutes)
+        }
+    }
+
+    private func minutes(fromTime text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let short = DateFormatter()
+        short.locale = .current
+        short.timeStyle = .short
+        short.dateStyle = .none
+        if let date = short.date(from: trimmed) {
+            return UmbrellaSolarSchedule.minutesOfDay(from: date)
+        }
+        let formats = ["h:mm a", "hh:mm a", "H:mm", "HH:mm"]
+        for format in formats {
+            let parser = DateFormatter()
+            parser.locale = .current
+            parser.dateFormat = format
+            if let date = parser.date(from: trimmed) {
+                return UmbrellaSolarSchedule.minutesOfDay(from: date)
             }
-        )
+        }
+        return nil
+    }
+
+    private func timeText(_ minutes: Int) -> String {
+        date(from: minutes).formatted(date: .omitted, time: .shortened)
+    }
+
+    private func controlAnchor(_ id: String) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: BrightnessControlAnchorKey.self,
+                value: [id: proxy.frame(in: .named("brightnessTab"))]
+            )
+        }
+    }
+
+    private func controlMenuLayer(id: String, anchor: CGRect) -> some View {
+        let choices = controlChoices(id)
+        let menuHeight = min(240, CGFloat(max(choices.count, 1)) * 28 + 12)
+        return GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { openControlID = nil }
+                Button(action: { openControlID = nil }) {
+                    EmptyView()
+                }
+                .keyboardShortcut(.cancelAction)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+                BrightnessChoiceMenu(choices: choices) { choice in
+                    applyControlChoice(id, choice: choice)
+                }
+                .frame(width: 220, height: menuHeight)
+                .offset(controlMenuOffset(anchor: anchor, in: geo.size, menuHeight: menuHeight))
+            }
+        }
+    }
+
+    private func controlChoices(_ id: String) -> [BrightnessChoice] {
+        switch id {
+        case "twilight":
+            return twilightChoices.map { minutes in
+                BrightnessChoice(
+                    id: "\(minutes)",
+                    title: twilightLabel(minutes),
+                    isSelected: minutes == feature.transitionMinutes
+                )
+            }
+        case "day", "night":
+            let selected = id == "day" ? feature.dayPresetID : feature.nightPresetID
+            return feature.presets.map { preset in
+                BrightnessChoice(id: preset.id, title: preset.name, isSelected: preset.id == selected)
+            }
+        default:
+            return []
+        }
+    }
+
+    private func applyControlChoice(_ id: String, choice: BrightnessChoice) {
+        switch id {
+        case "twilight":
+            if let minutes = Int(choice.id) {
+                twilightSelection.wrappedValue = minutes
+            }
+        case "day":
+            feature.dayPresetID = choice.id
+            feature.refreshAutoStateIfNeeded()
+        case "night":
+            feature.nightPresetID = choice.id
+            feature.refreshAutoStateIfNeeded()
+        default:
+            break
+        }
+        openControlID = nil
+    }
+
+    private func controlMenuOffset(anchor: CGRect, in size: CGSize, menuHeight: CGFloat) -> CGSize {
+        let menuWidth: CGFloat = 220
+        let x = min(max(8, anchor.minX), max(8, size.width - menuWidth - 8))
+        var y = anchor.maxY + 4
+        if y + menuHeight > size.height - 8 {
+            y = max(8, anchor.minY - menuHeight - 4)
+        }
+        return CGSize(width: x, height: y)
     }
 
     private func date(from minutes: Int) -> Date {
@@ -693,9 +860,14 @@ private struct PercentSliderRow: View {
                     .foregroundStyle(.tertiary)
                     .frame(width: 16)
                     .accessibilityHidden(true)
-                Slider(value: $value, in: range, onEditingChanged: onEditingChanged)
-                    .accessibilityLabel(title)
-                    .accessibilityValue(percentText)
+                AccentRangeSlider(
+                    value: $value,
+                    range: range,
+                    step: 0.01,
+                    onEditingChanged: onEditingChanged
+                )
+                .accessibilityLabel(title)
+                .accessibilityValue(percentText)
                 Image(systemName: "sun.max.fill")
                     .font(.system(size: 16))
                     .foregroundStyle(.tertiary)
@@ -771,7 +943,6 @@ private struct PresetLibraryRow: View {
 
     @State private var nameDraft: String
     @State private var isHovering = false
-    @State private var isAdjustingBrightness = false
     @FocusState private var nameFocused: Bool
 
     init(
@@ -799,7 +970,6 @@ private struct PresetLibraryRow: View {
         self.onPresetsChanged = onPresetsChanged
         _nameDraft = State(initialValue: initialName)
         _isHovering = State(initialValue: false)
-        _isAdjustingBrightness = State(initialValue: false)
     }
 
     private var preset: UmbrellaSunPreset? {
@@ -914,8 +1084,18 @@ private struct PresetLibraryRow: View {
                     Text("Name")
                     Spacer()
                     TextField("Name", text: $nameDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 220)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 7)
+                    .frame(width: 220, height: 24)
+                    .foregroundStyle(BrightnessChrome.text)
+                    .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(
+                                nameFocused ? BrightnessChrome.accent : Color.white.opacity(0.12),
+                                lineWidth: nameFocused ? 2 : 1
+                            )
+                    )
                     .autocorrectionDisabled()
                     .focused($nameFocused)
                     .onAppear { focusNameIfNeeded() }
@@ -945,12 +1125,11 @@ private struct PresetLibraryRow: View {
                 value: Binding(
                     get: { Double(preset.brightness) },
                     set: { newValue in
-                        guard isAdjustingBrightness else { return }
                         update(preset) { $0.brightness = Float(newValue) }
                     }
                 ),
                 range: Double(UmbrellaBrightnessFeature.minimumBrightness)...1,
-                onEditingChanged: { isAdjustingBrightness = $0 }
+                onEditingChanged: { _ in }
             )
             .padding(.vertical, 8)
 
@@ -1167,8 +1346,10 @@ private struct BrightnessScheduleGraph: View {
     @Binding var nightPresetID: String
     var useLocation: Bool
     var showsNow: Bool
+    var openControlID: String?
     var onSunrise: (Int) -> Void
     var onSunset: (Int) -> Void
+    var onOpenControl: (String) -> Void
 
     @State private var draggedHandle: ScheduleHandle?
     @State private var pillSizes: [String: CGSize] = [:]
@@ -1204,8 +1385,10 @@ private struct BrightnessScheduleGraph: View {
 
                 pill(title: "DAY", accessibility: "Day preset, midday peak", sizeKey: "day", selection: $dayPresetID)
                     .offset(dayPillOffset(width: width))
+                    .background(controlAnchor("day", offset: dayPillOffset(width: width)))
                 pill(title: "NIGHT", accessibility: "Night preset, night floor", sizeKey: "night", selection: $nightPresetID)
                     .offset(nightPillOffset(width: width))
+                    .background(controlAnchor("night", offset: nightPillOffset(width: width)))
             }
             .onPreferenceChange(SchedulePillSizeKey.self) { pillSizes = $0 }
         }
@@ -1213,24 +1396,29 @@ private struct BrightnessScheduleGraph: View {
     }
 
     private func pill(title: String, accessibility: String, sizeKey: String, selection: Binding<String>) -> some View {
-        HStack(spacing: 5) {
-            Text(title)
-                .font(.system(size: 9.5, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(.secondary)
-            Picker(accessibility, selection: selection) {
-                ForEach(presets) { preset in
-                    Text(preset.name).tag(preset.id)
-                }
+        let selected = presets.first { $0.id == selection.wrappedValue }?.name ?? ""
+        return Button {
+            onOpenControl(sizeKey)
+        } label: {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(BrightnessChrome.secondaryText)
+                Text(selected)
+                    .font(.system(size: 12))
+                    .foregroundStyle(BrightnessChrome.text)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .padding(.leading, 4)
             }
-            .labelsHidden()
-            .fixedSize()
-            .controlSize(.small)
-            .accessibilityLabel(accessibility)
+            .padding(.leading, 9)
+            .padding(.trailing, 8)
+            .frame(height: 24)
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 4)
-        .frame(height: 24)
+        .buttonStyle(.plain)
         .fixedSize()
         .background {
             GeometryReader { proxy in
@@ -1241,9 +1429,31 @@ private struct BrightnessScheduleGraph: View {
             }
         }
         .background(Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255).opacity(0.94), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.17), lineWidth: 1))
+        .overlay(
+            Capsule().strokeBorder(
+                openControlID == sizeKey ? BrightnessChrome.accent : Color.white.opacity(0.17),
+                lineWidth: 1
+            )
+        )
         .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
-        .environment(\.colorScheme, .dark)
+        .accessibilityLabel(accessibility)
+        .accessibilityValue(selected)
+    }
+
+    private func controlAnchor(_ id: String, offset: CGSize) -> some View {
+        GeometryReader { proxy in
+            let frame = proxy.frame(in: .named("brightnessTab"))
+            let visual = CGRect(
+                x: frame.minX + offset.width,
+                y: frame.minY + offset.height,
+                width: frame.width,
+                height: frame.height
+            )
+            Color.clear.preference(
+                key: BrightnessControlAnchorKey.self,
+                value: [id: visual]
+            )
+        }
     }
 
     private func dragGesture(width: CGFloat) -> some Gesture {
@@ -1573,6 +1783,188 @@ private struct PresetMenuAnchorKey: PreferenceKey {
 
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private enum BrightnessChrome {
+    static let window = Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255)
+    static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 255 / 255)
+    static let text = Color.white.opacity(0.88)
+    static let secondaryText = Color.white.opacity(0.55)
+}
+
+private enum ScheduleTimeField: Hashable {
+    case sunrise
+    case sunset
+}
+
+private struct BrightnessChoice: Identifiable {
+    var id: String
+    var title: String
+    var isSelected: Bool
+}
+
+private struct BrightnessControlAnchorKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private struct MockPopupButton: View {
+    var title: String
+    var isOpen: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(BrightnessChrome.text)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.75))
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 8)
+            .frame(height: 24)
+            .background(Color.white.opacity(0.11), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(isOpen ? BrightnessChrome.accent : Color.black.opacity(0.45), lineWidth: isOpen ? 1 : 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+    }
+}
+
+private struct BrightnessChoiceMenu: View {
+    var choices: [BrightnessChoice]
+    var onSelect: (BrightnessChoice) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(choices) { choice in
+                    Button {
+                        onSelect(choice)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11, weight: .semibold))
+                                .frame(width: 14)
+                                .opacity(choice.isSelected ? 1 : 0)
+                            Text(choice.title)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .font(.system(size: 13))
+                        .foregroundStyle(BrightnessChrome.text)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(5)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(red: 44 / 255, green: 44 / 255, blue: 44 / 255), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.55), radius: 16, y: 8)
+    }
+}
+
+private struct AccentRangeSlider: View {
+    @Binding var value: Double
+    var range: ClosedRange<Double>
+    var step: Double
+    var isEnabled = true
+    var onEditingChanged: (Bool) -> Void
+
+    private let thumbSize: CGFloat = 20
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = max(geo.size.width, thumbSize)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.16))
+                    .frame(height: 4)
+                Capsule()
+                    .fill(BrightnessChrome.accent)
+                    .frame(width: max(4, thumbCenter(in: width)), height: 4)
+                Circle()
+                    .fill(Color(red: 0.949, green: 0.949, blue: 0.949))
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.45), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.5), radius: 1.5, y: 1)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .offset(x: thumbOrigin(in: width))
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(drag(in: width))
+        }
+        .frame(height: thumbSize)
+        .opacity(isEnabled ? 1 : 0.4)
+        .accessibilityElement()
+        .accessibilityAdjustableAction { direction in
+            guard isEnabled else { return }
+            let delta = direction == .increment ? step : -step
+            onEditingChanged(true)
+            value = snapped(value + delta)
+            onEditingChanged(false)
+        }
+    }
+
+    private func drag(in width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard isEnabled else { return }
+                onEditingChanged(true)
+                self.value = amount(at: value.location.x, width: width)
+            }
+            .onEnded { _ in
+                guard isEnabled else { return }
+                onEditingChanged(false)
+            }
+    }
+
+    private func fraction(for amount: Double) -> CGFloat {
+        let span = range.upperBound - range.lowerBound
+        guard span > 0 else { return 0 }
+        return CGFloat(min(max(0, (amount - range.lowerBound) / span), 1))
+    }
+
+    private func thumbOrigin(in width: CGFloat) -> CGFloat {
+        fraction(for: value) * max(width - thumbSize, 1)
+    }
+
+    private func thumbCenter(in width: CGFloat) -> CGFloat {
+        thumbOrigin(in: width) + thumbSize / 2
+    }
+
+    private func amount(at x: CGFloat, width: CGFloat) -> Double {
+        let span = max(width - thumbSize, 1)
+        let fraction = min(max(0, (x - thumbSize / 2) / span), 1)
+        let raw = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
+        return snapped(raw)
+    }
+
+    private func snapped(_ raw: Double) -> Double {
+        guard step > 0 else { return min(range.upperBound, max(range.lowerBound, raw)) }
+        let steps = ((raw - range.lowerBound) / step).rounded()
+        let value = range.lowerBound + steps * step
+        return min(range.upperBound, max(range.lowerBound, value))
     }
 }
 
