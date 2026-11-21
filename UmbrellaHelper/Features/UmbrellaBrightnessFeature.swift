@@ -453,7 +453,8 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         refreshAutoStateIfNeeded()
     }
 
-    func addPreset(name: String) {
+    @discardableResult
+    func addPreset(name: String) -> String {
         let preset = UmbrellaSunPreset(
             name: name.isEmpty ? UmbrellaBlueLightManager.warmthLabel(for: colorTemp) : name,
             brightness: brightness,
@@ -465,6 +466,24 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         if dayPresetID.isEmpty { dayPresetID = preset.id }
         if nightPresetID.isEmpty { nightPresetID = preset.id }
         save()
+        return preset.id
+    }
+
+    /// Inserts a copy immediately after the original. The copy is not shown in the menu bar.
+    @discardableResult
+    func duplicatePreset(_ presetID: String) -> String? {
+        guard let index = presets.firstIndex(where: { $0.id == presetID }) else { return nil }
+        let source = presets[index]
+        let copy = UmbrellaSunPreset(
+            name: uniqueCopyName(for: source.name),
+            brightness: source.brightness,
+            colorTemp: source.colorTemp,
+            isDarkroom: source.isDarkroom,
+            isFilmMode: source.isFilmMode
+        )
+        presets.insert(copy, at: index + 1)
+        save()
+        return copy.id
     }
 
     func updatePreset(_ preset: UmbrellaSunPreset) {
@@ -475,12 +494,32 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         save()
     }
 
-    func removePreset(_ presetID: String) {
-        presets.removeAll(where: { $0.id == presetID })
+    /// Removes a preset. Day is reassigned to the brightest preset that remains, and Night to the dimmest.
+    /// The last preset is kept. Returns false when nothing was removed.
+    @discardableResult
+    func removePreset(_ presetID: String) -> Bool {
+        guard presets.count > 1 else { return false }
+        guard presets.contains(where: { $0.id == presetID }) else { return false }
+        let remaining = presets.filter { $0.id != presetID }
+        presets = remaining
         menuBarFavoriteIDs.removeAll { $0 == presetID }
-        if dayPresetID == presetID { dayPresetID = presets.first?.id ?? "" }
-        if nightPresetID == presetID { nightPresetID = presets.dropFirst().first?.id ?? presets.first?.id ?? "" }
+        if dayPresetID == presetID {
+            dayPresetID = Self.brightestPreset(in: remaining)?.id ?? ""
+        }
+        if nightPresetID == presetID {
+            nightPresetID = Self.dimmestPreset(in: remaining)?.id ?? ""
+        }
         save()
+        refreshAutoStateIfNeeded()
+        return true
+    }
+
+    static func brightestPreset(in presets: [UmbrellaSunPreset]) -> UmbrellaSunPreset? {
+        presets.max(by: Self.presetIsDimmer)
+    }
+
+    static func dimmestPreset(in presets: [UmbrellaSunPreset]) -> UmbrellaSunPreset? {
+        presets.min(by: Self.presetIsDimmer)
     }
 
     func isMenuBarFavorite(_ presetID: String) -> Bool {
@@ -552,6 +591,23 @@ final class UmbrellaBrightnessFeature: ObservableObject {
 
     private static func clampedBrightness(_ value: Float) -> Float {
         max(minimumBrightness, min(1, value))
+    }
+
+    private static func presetIsDimmer(_ lhs: UmbrellaSunPreset, _ rhs: UmbrellaSunPreset) -> Bool {
+        if lhs.brightness != rhs.brightness {
+            return lhs.brightness < rhs.brightness
+        }
+        return lhs.colorTemp < rhs.colorTemp
+    }
+
+    private func uniqueCopyName(for base: String) -> String {
+        var name = "\(base) Copy"
+        var suffix = 2
+        while presets.contains(where: { $0.name == name }) {
+            name = "\(base) Copy \(suffix)"
+            suffix += 1
+        }
+        return name
     }
 
     private func lerp(_ start: Float, _ end: Float, _ progress: Float) -> Float {
