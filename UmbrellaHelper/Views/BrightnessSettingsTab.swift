@@ -19,13 +19,18 @@ struct BrightnessSettingsTab: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Form {
-                displaySection
-                scheduleSection
-                presetsSection
-                powerSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    displaySection
+                    scheduleSection
+                    presetsSection
+                    powerSection
+                }
+                .padding(.top, 22)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .formStyle(.grouped)
             .scrollContentBackground(.hidden)
             .background(BrightnessChrome.window)
 
@@ -68,50 +73,54 @@ struct BrightnessSettingsTab: View {
 
     @ViewBuilder
     private var displaySection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 8) {
+            groupedHeader("Display")
             if let pause = feature.schedulePause {
                 schedulePauseBanner(pause)
             }
-
-            PercentSliderRow(
-                title: "Brightness",
-                percentText: "\(displayPercent)%",
-                value: Binding(
-                    get: { Double(feature.brightness) },
-                    set: { feature.setBrightness(Float($0), commit: false) }
-                ),
-                range: Double(UmbrellaBrightnessFeature.minimumBrightness)...1,
-                onEditingChanged: { editing in
-                    if !editing { feature.commitPendingChanges() }
+            groupedBox {
+                groupRow(stacked: true, divider: false) {
+                    PercentSliderRow(
+                        title: "Brightness",
+                        percentText: "\(displayPercent)%",
+                        value: Binding(
+                            get: { Double(feature.brightness) },
+                            set: { feature.setBrightness(Float($0), commit: false) }
+                        ),
+                        range: Double(UmbrellaBrightnessFeature.minimumBrightness)...1,
+                        onEditingChanged: { editing in
+                            if !editing { feature.commitPendingChanges() }
+                        }
+                    )
                 }
-            )
-
-            TemperatureSliderRow(
-                title: "Color temperature",
-                kelvinText: "\(feature.colorTemp)K",
-                value: Binding(
-                    get: { Double(feature.colorTemp) },
-                    set: { feature.setColorTemp(Int($0.rounded()), commit: false) }
-                ),
-                isDisabled: feature.isDarkroom,
-                onEditingChanged: { editing in
-                    if !editing { feature.commitPendingChanges() }
+                groupRow(stacked: true) {
+                    TemperatureSliderRow(
+                        title: "Color temperature",
+                        kelvinText: "\(feature.colorTemp)K",
+                        value: Binding(
+                            get: { Double(feature.colorTemp) },
+                            set: { feature.setColorTemp(Int($0.rounded()), commit: false) }
+                        ),
+                        isDisabled: feature.isDarkroom,
+                        onEditingChanged: { editing in
+                            if !editing { feature.commitPendingChanges() }
+                        }
+                    )
                 }
-            )
-
-            presetChipsRow
-
-            SettingsSwitch(
-                title: "Remove blue light",
-                caption: nil,
-                isOn: Binding(
-                    get: { feature.isDarkroom },
-                    set: { feature.setDarkroom($0) }
-                )
-            )
-        } header: {
-            Text("Display")
-        } footer: {
+                groupRow {
+                    presetChipsRow
+                }
+                groupRow {
+                    SettingsSwitch(
+                        title: "Remove blue light",
+                        caption: nil,
+                        isOn: Binding(
+                            get: { feature.isDarkroom },
+                            set: { feature.setDarkroom($0) }
+                        )
+                    )
+                }
+            }
             HStack {
                 Spacer()
                 Button("Restore Display Color") {
@@ -179,7 +188,10 @@ struct BrightnessSettingsTab: View {
 
     @ViewBuilder
     private var scheduleSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 8) {
+            groupedHeader("Schedule")
+            groupedBox {
+            groupRow(divider: false) {
             SettingsSwitch(
                 title: "Automatic brightness",
                 caption: "Follows the curve below: dim at night, brightest at midday. Adjusting the Display controls pauses it until the next sunrise or sunset.",
@@ -188,7 +200,9 @@ struct BrightnessSettingsTab: View {
                     set: { feature.setAutoMode($0) }
                 )
             )
+            }
 
+            groupRow(stacked: true) {
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 let now = UmbrellaSolarSchedule.minutesOfDay(from: context.date)
                 VStack(alignment: .leading, spacing: 8) {
@@ -227,7 +241,9 @@ struct BrightnessSettingsTab: View {
                 }
             }
             .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
+            }
 
+            groupRow {
             SettingsSwitch(
                 title: "Use location for sunrise and sunset",
                 caption: locationCaption,
@@ -237,7 +253,9 @@ struct BrightnessSettingsTab: View {
                 )
             )
             .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
+            }
 
+            groupRow {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Sunrise and sunset")
@@ -255,7 +273,9 @@ struct BrightnessSettingsTab: View {
                 if old == .sunset { commitTimeDraft(.sunset) }
             }
             .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
+            }
 
+            groupRow {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Twilight")
@@ -273,8 +293,8 @@ struct BrightnessSettingsTab: View {
                 .background(controlAnchor("twilight"))
             }
             .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
-        } header: {
-            Text("Schedule")
+            }
+            }
         }
     }
 
@@ -305,8 +325,11 @@ struct BrightnessSettingsTab: View {
 
     @ViewBuilder
     private var presetsSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 8) {
+            groupedHeader("Presets")
+            groupedBox {
             ForEach(feature.presets) { preset in
+                groupRow(top: 0, bottom: 0, minHeight: 0, divider: preset.id != feature.presets.first?.id) {
                 PresetLibraryRow(
                     feature: feature,
                     presetID: preset.id,
@@ -326,32 +349,80 @@ struct BrightnessSettingsTab: View {
                     },
                     onPresetsChanged: onPresetsChanged
                 )
+                }
             }
 
+            groupRow(top: 11, bottom: 11, minHeight: 0, divider: !feature.presets.isEmpty) {
             Button(action: saveCurrentSettingsAsPreset) {
                 Label("Save Current Settings as Preset", systemImage: "plus.circle.fill")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.accentColor)
-        } header: {
-            Text("Presets")
+            }
+            }
         }
     }
 
     private var powerSection: some View {
-        Section {
-            SettingsSwitch(
-                title: "Keep Awake",
-                caption: nil,
-                isOn: Binding(
-                    get: { feature.isKeepAwakeEnabled },
-                    set: { feature.setKeepAwake($0) }
-                )
-            )
-        } header: {
-            Text("Power")
+        VStack(alignment: .leading, spacing: 8) {
+            groupedHeader("Power")
+            groupedBox {
+                groupRow(divider: false) {
+                    SettingsSwitch(
+                        title: "Keep Awake",
+                        caption: nil,
+                        isOn: Binding(
+                            get: { feature.isKeepAwakeEnabled },
+                            set: { feature.setKeepAwake($0) }
+                        )
+                    )
+                }
+            }
         }
+    }
+
+    private func groupedHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(BrightnessChrome.text)
+            .padding(.leading, 2)
+    }
+
+    private func groupedBox<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(BrightnessChrome.group, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+        )
+    }
+
+    private func groupRow<Content: View>(
+        stacked: Bool = false,
+        top: CGFloat? = nil,
+        bottom: CGFloat? = nil,
+        minHeight: CGFloat? = nil,
+        divider: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.top, top ?? (stacked ? 11 : 10))
+            .padding(.bottom, bottom ?? (stacked ? 12 : 10))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: minHeight ?? (stacked ? 0 : 42))
+            .overlay(alignment: .top) {
+                if divider {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(height: 1)
+                        .padding(.horizontal, 14)
+                }
+            }
     }
 
     private var displayPercent: Int {
@@ -822,19 +893,23 @@ private struct SettingsSwitch: View {
     var isDisabled = false
 
     var body: some View {
-        Toggle(isOn: $isOn) {
+        HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
+                    .foregroundStyle(BrightnessChrome.text)
                 if let caption, !caption.isEmpty {
                     Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundStyle(BrightnessChrome.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            Spacer(minLength: 16)
+            Toggle(title, isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(isDisabled)
         }
-        .toggleStyle(.switch)
-        .disabled(isDisabled)
     }
 }
 
@@ -846,7 +921,7 @@ private struct PercentSliderRow: View {
     var onEditingChanged: (Bool) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text(title)
                 Spacer()
@@ -886,7 +961,7 @@ private struct TemperatureSliderRow: View {
     var onEditingChanged: (Bool) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text(title)
                 Spacer()
@@ -1788,6 +1863,7 @@ private struct PresetMenuAnchorKey: PreferenceKey {
 
 private enum BrightnessChrome {
     static let window = Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255)
+    static let group = Color(red: 40 / 255, green: 40 / 255, blue: 40 / 255)
     static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 255 / 255)
     static let text = Color.white.opacity(0.88)
     static let secondaryText = Color.white.opacity(0.55)

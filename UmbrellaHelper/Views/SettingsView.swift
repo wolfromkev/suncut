@@ -40,31 +40,84 @@ struct SettingsView: View {
     @State private var shortcutConflict: String?
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            keybindingsTab
-                .tabItem { Text("Keybindings") }
-                .tag(UmbrellaSettingsTab.keybindings)
-
-            BrightnessSettingsTab(
-                feature: appModel.brightnessFeature,
-                onPresetsChanged: {
-                    refreshPresetBindings()
-                    appModel.reloadSunPresetHotKeys()
+        VStack(spacing: 0) {
+            settingsTabBar
+            ZStack {
+                switch selectedTab {
+                case .keybindings:
+                    keybindingsTab
+                        .padding(16)
+                case .brightness:
+                    BrightnessSettingsTab(
+                        feature: appModel.brightnessFeature,
+                        onPresetsChanged: {
+                            refreshPresetBindings()
+                            appModel.reloadSunPresetHotKeys()
+                        }
+                    )
+                case .simpleSnip:
+                    SimpleSnipTabView(feature: appModel.simpleSnipFeature)
+                        .padding(16)
                 }
-            )
-            .tabItem { Text("Brightness") }
-            .tag(UmbrellaSettingsTab.brightness)
-
-            SimpleSnipTabView(feature: appModel.simpleSnipFeature)
-                .tabItem { Text("SimpleSnip") }
-                .tag(UmbrellaSettingsTab.simpleSnip)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(16)
+        .background(selectedTab == .brightness ? settingsWindowDark : Color(nsColor: .windowBackgroundColor))
+        .ignoresSafeArea(edges: .top)
         .onAppear {
             launchAtLogin = LaunchAtLoginManager.isEnabled
             refreshPresetBindings()
             detectShortcutConflict()
         }
+    }
+
+    private var settingsWindowDark: Color {
+        Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255)
+    }
+
+    private var settingsTabBar: some View {
+        HStack {
+            Spacer(minLength: 78)
+            HStack(spacing: 0) {
+                settingsTabButton("Keybindings", tab: .keybindings)
+                settingsTabButton("Brightness", tab: .brightness)
+                settingsTabButton("SimpleSnip", tab: .simpleSnip)
+            }
+            .padding(2)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
+            Spacer(minLength: 78)
+        }
+        .frame(height: 52)
+        .background(Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.black.opacity(0.55))
+                .frame(height: 1)
+        }
+    }
+
+    private func settingsTabButton(_ title: String, tab: UmbrellaSettingsTab) -> some View {
+        let selected = selectedTab == tab
+        return Button {
+            selectedTab = tab
+        } label: {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(selected ? Color.white.opacity(0.88) : Color.white.opacity(0.55))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(selected ? Color.white.opacity(0.13) : Color.clear)
+                        .shadow(color: selected ? Color.black.opacity(0.45) : .clear, radius: 0, y: 0)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var keybindingsTab: some View {

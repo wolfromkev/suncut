@@ -50,6 +50,12 @@ final class SettingsPanelController: NSObject, NSWindowDelegate {
                 defer: false
             )
             window.title = "Suncut Settings"
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+            window.styleMask.insert(.fullSizeContentView)
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = .windowBackgroundColor
             window.delegate = self
             window.contentViewController = hosting
             window.setContentSize(contentSize)
