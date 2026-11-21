@@ -17,7 +17,6 @@ private enum KeybindingTarget: Hashable {
     case brightnessUp
     case warmthUp
     case warmthDown
-    case filmMode
     case sunPreset(String)
 }
 
@@ -36,7 +35,6 @@ struct SettingsView: View {
     @State private var brightnessUpHotKey = AppSettings.shared.brightnessUpHotKey
     @State private var warmthUpHotKey = AppSettings.shared.warmthUpHotKey
     @State private var warmthDownHotKey = AppSettings.shared.warmthDownHotKey
-    @State private var filmModeHotKey = AppSettings.shared.filmModeHotKey
     @State private var sunPresetHotKeys = AppSettings.shared.sunScreenPresetHotKeys
     @State private var recordingTarget: KeybindingTarget?
     @State private var shortcutConflict: String?
@@ -109,7 +107,6 @@ struct SettingsView: View {
                     editableBindingRow("Brightness up", target: .brightnessUp)
                     editableBindingRow("Warmer", target: .warmthUp)
                     editableBindingRow("Cooler", target: .warmthDown)
-                    editableBindingRow("Film Mode", target: .filmMode)
 
                     Divider()
 
@@ -164,7 +161,6 @@ struct SettingsView: View {
                 case .brightnessUp: return brightnessUpHotKey
                 case .warmthUp: return warmthUpHotKey
                 case .warmthDown: return warmthDownHotKey
-                case .filmMode: return filmModeHotKey
                 case .sunPreset(let id): return sunPresetHotKeys[id]
                 }
             },
@@ -204,9 +200,6 @@ struct SettingsView: View {
         case .warmthDown:
             warmthDownHotKey = binding
             AppSettings.shared.warmthDownHotKey = binding
-        case .filmMode:
-            filmModeHotKey = binding
-            AppSettings.shared.filmModeHotKey = binding
         case .sunPreset(let id):
             sunPresetHotKeys[id] = binding
             AppSettings.shared.sunScreenPresetHotKeys = sunPresetHotKeys
@@ -245,9 +238,6 @@ struct SettingsView: View {
         case .warmthDown:
             warmthDownHotKey = .warmthDownDefault
             AppSettings.shared.warmthDownHotKey = .warmthDownDefault
-        case .filmMode:
-            filmModeHotKey = nil
-            AppSettings.shared.filmModeHotKey = nil
         case .sunPreset(let id):
             sunPresetHotKeys.removeValue(forKey: id)
             AppSettings.shared.sunScreenPresetHotKeys = sunPresetHotKeys
@@ -258,8 +248,6 @@ struct SettingsView: View {
 
     private func canClear(_ target: KeybindingTarget) -> Bool {
         switch target {
-        case .filmMode:
-            return filmModeHotKey != nil
         case .sunPreset(let id):
             return sunPresetHotKeys[id] != nil
         default:
@@ -279,9 +267,6 @@ struct SettingsView: View {
             ("Warmer", warmthUpHotKey),
             ("Cooler", warmthDownHotKey),
         ]
-        if let filmModeHotKey {
-            all.append(("Film Mode", filmModeHotKey))
-        }
         all += appModel.brightnessFeature.presets.compactMap { preset in
             guard let binding = sunPresetHotKeys[preset.id] else { return nil }
             return ("SunScreen: \(preset.name)", binding)

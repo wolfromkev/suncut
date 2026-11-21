@@ -43,10 +43,7 @@ struct UmbrellaSunPreset: Codable, Equatable, Identifiable {
 
 
 private enum UmbrellaBlueLightManager {
-    /// Film Mode floor. Below 10% the pointer is easy to lose on an external display.
-    private static let filmModeExternalChannels: (Float, Float, Float) = (0.10, 0.10, 0.10)
-
-    static func apply(colorTemp: Int, brightness: Float, darkroom: Bool, filmMode: Bool) {
+    static func apply(colorTemp: Int, brightness: Float, darkroom: Bool) {
         let dim = max(UmbrellaBrightnessFeature.minimumBrightness, min(1, brightness))
         let channels: (Float, Float, Float)
         if darkroom {
@@ -57,20 +54,13 @@ private enum UmbrellaBlueLightManager {
         }
 
         for display in onlineDisplayIDs() {
-            let applied = filmMode && !isBuiltInDisplay(display)
-                ? filmModeExternalChannels
-                : channels
             CGSetDisplayTransferByFormula(
                 display,
-                0, applied.0, 1,
-                0, applied.1, 1,
-                0, applied.2, 1
+                0, channels.0, 1,
+                0, channels.1, 1,
+                0, channels.2, 1
             )
         }
-    }
-
-    private static func isBuiltInDisplay(_ displayID: CGDirectDisplayID) -> Bool {
-        CGDisplayIsBuiltin(displayID) != 0
     }
 
     static func reset() {
@@ -139,6 +129,13 @@ private enum UmbrellaBlueLightManager {
     }
 }
 
+struct UmbrellaSchedulePause: Equatable {
+    /// "sunrise" or "sunset".
+    var eventName: String
+    var resumeDate: Date
+    var isTomorrow: Bool
+}
+
 @MainActor
 final class UmbrellaBrightnessFeature: ObservableObject {
     static let minimumBrightness: Float = 0.10
@@ -163,11 +160,22 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     @Published var locationLongitude: Double? = nil
     /// Up to 3 preset IDs shown in the menu bar Screen section.
     @Published var menuBarFavoriteIDs: [String]
+    /// Set while Automatic brightness stays on but the curve is not driving the display.
+    @Published var schedulePause: UmbrellaSchedulePause?
 
     static let maxMenuBarFavorites = 3
 
     private var keepAwakeActivity: NSObjectProtocol?
     private var timer: Timer?
+    private var scheduleResumeTimer: Timer?
+    private var easeTimer: Timer?
+    private var isEasingToSchedule = false
+    private var easeStartedAt: TimeInterval = 0
+    private var easeFromBrightness: Float = 1
+    private var easeToBrightness: Float = 1
+    private var easeFromColorTemp: Int = 6500
+    private var easeToColorTemp: Int = 6500
+    private var easeToDarkroom = false
     private var screenChangeObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
     private var colorSyncObservers: [NSObjectProtocol] = []
@@ -260,8 +268,8 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     func start() {
         // Always restore system gamma first (covers force-quit while Film Mode was on).
         UmbrellaBlueLightManager.reset()
-        if defaults.bool(forKey: filmModeDirtyKey) {
-            // Unclean exit: don't re-black externals — leave Film Mode off until the user toggles it.
+        // Film Mode no longer drives gamma. Clear a saved flag so an old setting cannot dim displays.
+        if isFilmModeEnabled || defaults.bool(forKey: filmModeDirtyKey) {
             isFilmModeEnabled = false
             defaults.set(false, forKey: filmModeDirtyKey)
             defaults.set(false, forKey: "umbrella.sunscreen.filmMode")
@@ -307,6 +315,7 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        cancelScheduleMotion()
         locationProvider.stop()
         pendingApplyWorkItem?.cancel()
         pendingApplyWorkItem = nil
@@ -332,8 +341,10 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     }
 
     /// Updates brightness. Pass `commit: false` while a slider is dragging; call `commitPendingChanges()` on mouse-up.
+    /// While automatic brightness is on, this pauses the schedule instead of turning it off.
     func setBrightness(_ value: Float, commit: Bool = true) {
-        isAutoMode = false
+        cancelEase()
+        beginSchedulePauseIfNeeded()
         brightness = Self.clampedBrightness(value)
         isDarkroom = false
         apply(persist: commit, immediate: commit)
@@ -344,8 +355,10 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     }
 
     /// Updates color temp. Pass `commit: false` while a slider is dragging; call `commitPendingChanges()` on mouse-up.
+    /// While automatic brightness is on, this pauses the schedule instead of turning it off.
     func setColorTemp(_ value: Int, commit: Bool = true) {
-        isAutoMode = false
+        cancelEase()
+        beginSchedulePauseIfNeeded()
         colorTemp = max(1200, min(6500, value))
         isDarkroom = false
         apply(persist: commit, immediate: commit)
@@ -361,7 +374,10 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     }
 
     /// Emergency reset: restore system ColorSync, then re-apply current Suncut settings once.
+    /// While automatic brightness is on, this pauses the schedule.
     func restoreDisplayColor() {
+        cancelEase()
+        beginSchedulePauseIfNeeded()
         pendingApplyWorkItem?.cancel()
         pendingApplyWorkItem = nil
         screenChangeWorkItem?.cancel()
@@ -397,14 +413,34 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     }
 
     func setDarkroom(_ enabled: Bool) {
-        if enabled { isAutoMode = false }
+        if enabled {
+            cancelEase()
+            isAutoMode = false
+            clearSchedulePause()
+        }
         isDarkroom = enabled
         apply(persist: true, immediate: true)
     }
 
     func setAutoMode(_ enabled: Bool) {
+        cancelEase()
+        clearSchedulePause()
         isAutoMode = enabled
-        refreshAutoStateIfNeeded()
+        if enabled {
+            animateBackToSchedule()
+        } else {
+            refreshAutoStateIfNeeded()
+        }
+    }
+
+    /// Drops the manual pause and eases brightness and color temperature back onto the curve.
+    func resumeSchedule() {
+        guard isAutoMode else {
+            clearSchedulePause()
+            return
+        }
+        clearSchedulePause()
+        animateBackToSchedule()
     }
 
     func setUseLocationSchedule(_ enabled: Bool) {
@@ -427,15 +463,6 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         isKeepAwakeEnabled = enabled
         applyKeepAwake()
         save()
-    }
-
-    func setFilmMode(_ enabled: Bool) {
-        isFilmModeEnabled = enabled
-        apply(persist: true, immediate: true)
-    }
-
-    func toggleFilmMode() {
-        setFilmMode(!isFilmModeEnabled)
     }
 
     func updateSunrise(_ minutes: Int) {
@@ -542,11 +569,11 @@ final class UmbrellaBrightnessFeature: ObservableObject {
 
     func applyPreset(id: String) {
         guard let preset = presets.first(where: { $0.id == id }) else { return }
+        cancelEase()
+        beginSchedulePauseIfNeeded()
         brightness = Self.clampedBrightness(preset.brightness)
         colorTemp = preset.colorTemp
         isDarkroom = preset.isDarkroom
-        isFilmModeEnabled = preset.isFilmMode
-        isAutoMode = false
         apply(persist: true, immediate: true)
     }
 
@@ -555,20 +582,42 @@ final class UmbrellaBrightnessFeature: ObservableObject {
             refreshSolarTimesIfNeeded(force: false)
         }
 
+        if isEasingToSchedule { return }
+
         guard isAutoMode else {
+            clearSchedulePause()
             // Capture / ColorSync can wipe the LUT even when auto is off.
             apply(persist: false, immediate: true)
             return
         }
 
-        let now = UmbrellaSolarSchedule.minutesOfDay(from: Date())
-        let dayPreset = presets.first(where: { $0.id == dayPresetID }) ?? presets.first
-        let nightPreset = presets.first(where: { $0.id == nightPresetID }) ?? presets.last ?? presets.first
+        if holdManualPauseIfNeeded() { return }
 
-        guard let dayPreset, let nightPreset else {
+        guard let scheduled = scheduledAppearance(at: Date()) else {
             save()
             return
         }
+        brightness = scheduled.brightness
+        colorTemp = scheduled.colorTemp
+        isDarkroom = scheduled.isDarkroom
+        apply(persist: true, immediate: true)
+    }
+
+    private static func clampedBrightness(_ value: Float) -> Float {
+        max(minimumBrightness, min(1, value))
+    }
+
+    private struct ScheduledAppearance {
+        var brightness: Float
+        var colorTemp: Int
+        var isDarkroom: Bool
+    }
+
+    private func scheduledAppearance(at date: Date) -> ScheduledAppearance? {
+        let now = UmbrellaSolarSchedule.minutesOfDay(from: date)
+        let dayPreset = presets.first(where: { $0.id == dayPresetID }) ?? presets.first
+        let nightPreset = presets.first(where: { $0.id == nightPresetID }) ?? presets.last ?? presets.first
+        guard let dayPreset, let nightPreset else { return nil }
 
         let progress = UmbrellaSolarSchedule.daylightProgress(
             at: now,
@@ -576,21 +625,151 @@ final class UmbrellaBrightnessFeature: ObservableObject {
             sunset: sunsetMinutes,
             transition: transitionMinutes
         )
-
         if progress <= 0.001 {
-            brightness = Self.clampedBrightness(nightPreset.brightness)
-            colorTemp = nightPreset.colorTemp
-            isDarkroom = nightPreset.isDarkroom
-        } else {
-            brightness = Self.clampedBrightness(lerp(nightPreset.brightness, dayPreset.brightness, progress))
-            colorTemp = lerp(nightPreset.colorTemp, dayPreset.colorTemp, progress)
-            isDarkroom = false
+            return ScheduledAppearance(
+                brightness: Self.clampedBrightness(nightPreset.brightness),
+                colorTemp: nightPreset.colorTemp,
+                isDarkroom: nightPreset.isDarkroom
+            )
         }
-        apply(persist: true, immediate: true)
+        return ScheduledAppearance(
+            brightness: Self.clampedBrightness(lerp(nightPreset.brightness, dayPreset.brightness, progress)),
+            colorTemp: lerp(nightPreset.colorTemp, dayPreset.colorTemp, progress),
+            isDarkroom: false
+        )
     }
 
-    private static func clampedBrightness(_ value: Float) -> Float {
-        max(minimumBrightness, min(1, value))
+    private func beginSchedulePauseIfNeeded() {
+        guard isAutoMode, schedulePause == nil, !isEasingToSchedule else { return }
+        schedulePause = makeSchedulePause(from: Date())
+        armScheduleResumeTimer()
+    }
+
+    /// Keeps the manual display values while the pause is active. Returns true when the curve should not run.
+    private func holdManualPauseIfNeeded() -> Bool {
+        guard var pause = schedulePause else { return false }
+        let updated = makeSchedulePause(from: Date())
+        if updated.eventName != pause.eventName
+            || updated.isTomorrow != pause.isTomorrow
+            || abs(updated.resumeDate.timeIntervalSince(pause.resumeDate)) > 30 {
+            schedulePause = updated
+            armScheduleResumeTimer()
+            pause = updated
+        }
+        if Date() >= pause.resumeDate {
+            resumeSchedule()
+            return true
+        }
+        apply(persist: false, immediate: true)
+        return true
+    }
+
+    private func makeSchedulePause(from date: Date) -> UmbrellaSchedulePause {
+        let now = UmbrellaSolarSchedule.minutesOfDay(from: date)
+        let eventName: String
+        let minutes: Int
+        let isTomorrow: Bool
+        if now < sunriseMinutes {
+            eventName = "sunrise"
+            minutes = sunriseMinutes
+            isTomorrow = false
+        } else if now < sunsetMinutes {
+            eventName = "sunset"
+            minutes = sunsetMinutes
+            isTomorrow = false
+        } else {
+            eventName = "sunrise"
+            minutes = sunriseMinutes
+            isTomorrow = true
+        }
+
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: date)
+        let day = isTomorrow ? (calendar.date(byAdding: .day, value: 1, to: start) ?? start) : start
+        var resumeDate = calendar.date(
+            bySettingHour: minutes / 60,
+            minute: minutes % 60,
+            second: 0,
+            of: day
+        ) ?? date
+        var resolvedTomorrow = isTomorrow
+        if resumeDate <= date {
+            resumeDate = calendar.date(byAdding: .day, value: 1, to: resumeDate) ?? date.addingTimeInterval(60)
+            resolvedTomorrow = true
+        }
+        return UmbrellaSchedulePause(eventName: eventName, resumeDate: resumeDate, isTomorrow: resolvedTomorrow)
+    }
+
+    private func armScheduleResumeTimer() {
+        scheduleResumeTimer?.invalidate()
+        scheduleResumeTimer = nil
+        guard let pause = schedulePause else { return }
+        let interval = max(pause.resumeDate.timeIntervalSinceNow, 1)
+        scheduleResumeTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshAutoStateIfNeeded()
+            }
+        }
+    }
+
+    private func clearSchedulePause() {
+        scheduleResumeTimer?.invalidate()
+        scheduleResumeTimer = nil
+        schedulePause = nil
+    }
+
+    private func cancelEase() {
+        easeTimer?.invalidate()
+        easeTimer = nil
+        isEasingToSchedule = false
+    }
+
+    private func cancelScheduleMotion() {
+        cancelEase()
+        clearSchedulePause()
+    }
+
+    private func animateBackToSchedule() {
+        guard isAutoMode, let target = scheduledAppearance(at: Date()) else {
+            refreshAutoStateIfNeeded()
+            return
+        }
+        easeFromBrightness = brightness
+        easeToBrightness = target.brightness
+        easeFromColorTemp = colorTemp
+        easeToColorTemp = target.colorTemp
+        easeToDarkroom = target.isDarkroom
+        easeStartedAt = Date().timeIntervalSinceReferenceDate
+        isEasingToSchedule = true
+        easeTimer?.invalidate()
+        easeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            Task { @MainActor in
+                self?.stepScheduleEase(timer)
+            }
+        }
+    }
+
+    private func stepScheduleEase(_ timer: Timer) {
+        guard isEasingToSchedule else {
+            timer.invalidate()
+            return
+        }
+        let elapsed = Date().timeIntervalSinceReferenceDate - easeStartedAt
+        let progress = min(1, elapsed / 0.6)
+        let eased = 1 - pow(1 - progress, 3)
+        brightness = Self.clampedBrightness(
+            easeFromBrightness + (easeToBrightness - easeFromBrightness) * Float(eased)
+        )
+        colorTemp = easeFromColorTemp + Int((Float(easeToColorTemp - easeFromColorTemp) * Float(eased)).rounded())
+        if progress >= 1 {
+            brightness = easeToBrightness
+            colorTemp = easeToColorTemp
+            isDarkroom = easeToDarkroom
+            cancelEase()
+            apply(persist: true, immediate: true)
+            return
+        }
+        apply(persist: false, immediate: true)
     }
 
     private static func presetIsDimmer(_ lhs: UmbrellaSunPreset, _ rhs: UmbrellaSunPreset) -> Bool {
@@ -717,11 +896,9 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         UmbrellaBlueLightManager.apply(
             colorTemp: colorTemp,
             brightness: brightness,
-            darkroom: isDarkroom,
-            filmMode: isFilmModeEnabled
+            darkroom: isDarkroom
         )
-        // Dirty while Film Mode gamma is live so force-quit can recover on next launch.
-        defaults.set(isFilmModeEnabled, forKey: filmModeDirtyKey)
+        defaults.set(false, forKey: filmModeDirtyKey)
         if needsPersist {
             needsPersist = false
             save()

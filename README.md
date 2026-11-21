@@ -4,12 +4,12 @@
   <img src="branding/icon-1024.png" alt="Suncut logo" width="128" height="128">
 </p>
 
-A native macOS menu bar app for screen capture/recording and display warmth/brightness (including Film Mode).
+A native macOS menu bar app for screen capture/recording and display warmth/brightness.
 
 ## Features
 
 - **SimpleSnip:** area / window / full-screen screenshots, area recording, and OCR text copy
-- **Brightness:** warmth + brightness controls, presets, Film Mode (dims external displays), and an optional daytime curve (dim at night, peak at midday) with manual or location-based sunrise/sunset
+- **Brightness:** warmth + brightness controls, presets, and an optional daytime curve (dim at night, peak at midday) with manual or location-based sunrise/sunset
 - **Menu bar:** click for controls; right-click for Settings / Restart / Quit
 - **Launch at login** and customizable global hotkeys
 

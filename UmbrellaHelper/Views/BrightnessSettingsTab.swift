@@ -6,37 +6,56 @@ struct BrightnessSettingsTab: View {
     var onPresetsChanged: () -> Void
 
     @State private var isAdjustingBrightness = false
-    @State private var isAdjustingTemperature = false
     @State private var expandedPresetID: String?
     @State private var nameFocusID: String?
     @State private var nameSelectAll = false
     @State private var deletePrompt: PresetDeletePrompt?
+    @State private var openMenuID: String?
+    @State private var menuAnchors: [String: CGRect] = [:]
 
     var body: some View {
-        Form {
-            displaySection
-            scheduleSection
-            presetsSection
-            powerSection
+        ZStack(alignment: .topLeading) {
+            Form {
+                displaySection
+                scheduleSection
+                presetsSection
+                powerSection
+            }
+            .formStyle(.grouped)
+
+            if let openMenuID,
+               let preset = feature.presets.first(where: { $0.id == openMenuID }),
+               let anchor = menuAnchors[openMenuID] {
+                presetActionLayer(for: preset, anchor: anchor)
+            }
+
+            if let deletePrompt {
+                DeletePresetSheet(
+                    title: deletePrompt.title,
+                    message: deletePrompt.message,
+                    onCancel: { self.deletePrompt = nil },
+                    onDelete: confirmDelete
+                )
+            }
         }
-        .formStyle(.grouped)
-        .alert(
-            Text(deletePrompt?.title ?? "Delete preset?"),
-            isPresented: Binding(
-                get: { deletePrompt != nil },
-                set: { if !$0 { deletePrompt = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) { confirmDelete() }
-        } message: {
-            Text(deletePrompt?.message ?? "")
+        .coordinateSpace(name: "brightnessTab")
+        .onPreferenceChange(PresetMenuAnchorKey.self) { menuAnchors = $0 }
+        .onExitCommand {
+            if deletePrompt != nil {
+                deletePrompt = nil
+            } else if openMenuID != nil {
+                openMenuID = nil
+            }
         }
     }
 
     @ViewBuilder
     private var displaySection: some View {
         Section {
+            if let pause = feature.schedulePause {
+                schedulePauseBanner(pause)
+            }
+
             PercentSliderRow(
                 title: "Brightness",
                 percentText: "\(displayPercent)%",
@@ -59,14 +78,10 @@ struct BrightnessSettingsTab: View {
                 kelvinText: "\(feature.colorTemp)K",
                 value: Binding(
                     get: { Double(feature.colorTemp) },
-                    set: { newValue in
-                        guard isAdjustingTemperature else { return }
-                        feature.setColorTemp(Int(newValue.rounded()), commit: false)
-                    }
+                    set: { feature.setColorTemp(Int($0.rounded()), commit: false) }
                 ),
                 isDisabled: feature.isDarkroom,
                 onEditingChanged: { editing in
-                    isAdjustingTemperature = editing
                     if !editing { feature.commitPendingChanges() }
                 }
             )
@@ -79,15 +94,6 @@ struct BrightnessSettingsTab: View {
                 isOn: Binding(
                     get: { feature.isDarkroom },
                     set: { feature.setDarkroom($0) }
-                )
-            )
-
-            SettingsSwitch(
-                title: "Dim external displays only",
-                caption: "The built-in display is left unchanged.",
-                isOn: Binding(
-                    get: { feature.isFilmModeEnabled },
-                    set: { feature.setFilmMode($0) }
                 )
             )
         } header: {
@@ -163,7 +169,7 @@ struct BrightnessSettingsTab: View {
         Section {
             SettingsSwitch(
                 title: "Automatic brightness",
-                caption: "Follows the curve below: dim at night, brightest at midday. Adjusting the Display controls turns this off.",
+                caption: "Follows the curve below: dim at night, brightest at midday. Adjusting the Display controls pauses it until the next sunrise or sunset.",
                 isOn: Binding(
                     get: { feature.isAutoMode },
                     set: { feature.setAutoMode($0) }
@@ -275,7 +281,11 @@ struct BrightnessSettingsTab: View {
                 : "Off · Brightness stays where you set it"
             )
             Spacer(minLength: 12)
-            if feature.isAutoMode, let sample = scheduledSample(at: minutes) {
+            if feature.isAutoMode, let pause = feature.schedulePause {
+                Text("Paused until \(pause.resumeDate.formatted(date: .omitted, time: .shortened))")
+                    .foregroundStyle(.orange)
+                    .monospacedDigit()
+            } else if feature.isAutoMode, let sample = scheduledSample(at: minutes) {
                 Text("Now \(Int((sample.brightness * 100).rounded()))% · \(sample.colorTemp)K")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -297,11 +307,13 @@ struct BrightnessSettingsTab: View {
                     selectAllName: nameSelectAll && nameFocusID == preset.id,
                     onToggle: { togglePreset(preset.id) },
                     onEdit: { editPreset(preset.id) },
+                    onOpenMenu: {
+                        openMenuID = openMenuID == preset.id ? nil : preset.id
+                    },
                     onConsumeNameFocus: {
                         nameFocusID = nil
                         nameSelectAll = false
                     },
-                    onRequestDelete: { requestDelete(preset) },
                     onPresetsChanged: onPresetsChanged
                 )
             }
@@ -441,7 +453,6 @@ struct BrightnessSettingsTab: View {
         return brightnessMatches
             && temperatureMatches
             && feature.isDarkroom == preset.isDarkroom
-            && feature.isFilmModeEnabled == preset.isFilmMode
     }
 
     private func nearestHundred(_ kelvin: Int) -> Int {
@@ -508,8 +519,95 @@ struct BrightnessSettingsTab: View {
         return name
     }
 
+    private func schedulePauseBanner(_ pause: UmbrellaSchedulePause) -> some View {
+        let time = pause.resumeDate.formatted(date: .omitted, time: .shortened)
+        let when = pause.isTomorrow ? "\(pause.eventName) tomorrow" : pause.eventName
+        return HStack(spacing: 10) {
+            Image(systemName: "pause.circle")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            (Text("Manual adjustment. ").bold() + Text("The schedule resumes at \(when) (\(time))."))
+                .font(.system(size: 12))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Resume Schedule") {
+                feature.resumeSchedule()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.11), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.3), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+    }
+
+    private func presetActionLayer(for preset: UmbrellaSunPreset, anchor: CGRect) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { openMenuID = nil }
+                Button(action: { openMenuID = nil }) {
+                    EmptyView()
+                }
+                    .keyboardShortcut(.cancelAction)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+                PresetActionMenu(
+                    presetName: preset.name,
+                    showsInMenuBar: feature.isMenuBarFavorite(preset.id),
+                    menuBarFull: feature.menuBarFavoriteIDs.count >= UmbrellaBrightnessFeature.maxMenuBarFavorites
+                        && !feature.isMenuBarFavorite(preset.id),
+                    canDelete: feature.presets.count > 1,
+                    onApply: {
+                        openMenuID = nil
+                        feature.applyPreset(id: preset.id)
+                    },
+                    onEdit: {
+                        openMenuID = nil
+                        editPreset(preset.id)
+                    },
+                    onDuplicate: {
+                        openMenuID = nil
+                        if feature.duplicatePreset(preset.id) != nil {
+                            onPresetsChanged()
+                        }
+                    },
+                    onToggleMenuBar: {
+                        openMenuID = nil
+                        _ = feature.toggleMenuBarFavorite(preset.id)
+                    },
+                    onDelete: {
+                        openMenuID = nil
+                        requestDelete(preset)
+                    }
+                )
+                .frame(width: 220)
+                .fixedSize(horizontal: true, vertical: true)
+                .offset(presetMenuOffset(anchor: anchor, in: geo.size))
+            }
+        }
+    }
+
+    private func presetMenuOffset(anchor: CGRect, in size: CGSize) -> CGSize {
+        let menuWidth: CGFloat = 220
+        let menuHeight: CGFloat = 168
+        let x = min(max(8, anchor.maxX - menuWidth), max(8, size.width - menuWidth - 8))
+        var y = anchor.maxY + 4
+        if y + menuHeight > size.height - 8 {
+            y = max(8, anchor.minY - menuHeight - 4)
+        }
+        return CGSize(width: x, height: y)
+    }
+
     private func requestDelete(_ preset: UmbrellaSunPreset) {
         guard feature.presets.count > 1 else { return }
+        openMenuID = nil
         deletePrompt = PresetDeletePrompt(
             id: preset.id,
             title: "Delete “\(preset.name)”?",
@@ -632,13 +730,14 @@ private struct TemperatureSliderRow: View {
                     .frame(width: 9, height: 9)
                     .frame(width: 16)
                     .accessibilityHidden(true)
-                Slider(
-                    value: $value,
-                    in: 1200...6500,
-                    step: Double(UmbrellaBrightnessFeature.colorTempStep),
+                KelvinGradientSlider(
+                    kelvin: Binding(
+                        get: { Int(value.rounded()) },
+                        set: { value = Double($0) }
+                    ),
+                    isEnabled: !isDisabled,
                     onEditingChanged: onEditingChanged
                 )
-                .disabled(isDisabled)
                 .accessibilityLabel(title)
                 .accessibilityValue(kelvinText)
                 Circle()
@@ -668,14 +767,13 @@ private struct PresetLibraryRow: View {
     var selectAllName: Bool
     var onToggle: () -> Void
     var onEdit: () -> Void
+    var onOpenMenu: () -> Void
     var onConsumeNameFocus: () -> Void
-    var onRequestDelete: () -> Void
     var onPresetsChanged: () -> Void
 
     @State private var nameDraft: String
     @State private var isHovering = false
     @State private var isAdjustingBrightness = false
-    @State private var isAdjustingTemperature = false
     @FocusState private var nameFocused: Bool
 
     init(
@@ -687,8 +785,8 @@ private struct PresetLibraryRow: View {
         selectAllName: Bool,
         onToggle: @escaping () -> Void,
         onEdit: @escaping () -> Void,
+        onOpenMenu: @escaping () -> Void,
         onConsumeNameFocus: @escaping () -> Void,
-        onRequestDelete: @escaping () -> Void,
         onPresetsChanged: @escaping () -> Void
     ) {
         _feature = ObservedObject(wrappedValue: feature)
@@ -698,13 +796,12 @@ private struct PresetLibraryRow: View {
         self.selectAllName = selectAllName
         self.onToggle = onToggle
         self.onEdit = onEdit
+        self.onOpenMenu = onOpenMenu
         self.onConsumeNameFocus = onConsumeNameFocus
-        self.onRequestDelete = onRequestDelete
         self.onPresetsChanged = onPresetsChanged
         _nameDraft = State(initialValue: initialName)
         _isHovering = State(initialValue: false)
         _isAdjustingBrightness = State(initialValue: false)
-        _isAdjustingTemperature = State(initialValue: false)
     }
 
     private var preset: UmbrellaSunPreset? {
@@ -755,7 +852,21 @@ private struct PresetLibraryRow: View {
                 .allowsHitTesting(isHovering)
             }
 
-            presetMenu(preset)
+            Button(action: onOpenMenu) {
+                Image(systemName: "ellipsis")
+                    .frame(width: 24, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: PresetMenuAnchorKey.self,
+                        value: [presetID: geo.frame(in: .named("brightnessTab"))]
+                    )
+                }
+            )
+            .accessibilityLabel("More actions for \(preset.name)")
 
             Button(action: onToggle) {
                 Image(systemName: "chevron.right")
@@ -784,40 +895,6 @@ private struct PresetLibraryRow: View {
                 PresetBadge(title: "Menu bar", tint: .secondary)
             }
         }
-    }
-
-    private func presetMenu(_ preset: UmbrellaSunPreset) -> some View {
-        let menuBarFull = feature.menuBarFavoriteIDs.count >= UmbrellaBrightnessFeature.maxMenuBarFavorites
-            && !feature.isMenuBarFavorite(preset.id)
-        return Menu {
-            Button("Apply") {
-                feature.applyPreset(id: preset.id)
-            }
-            Button("Edit", action: onEdit)
-            Button("Duplicate") {
-                if feature.duplicatePreset(preset.id) != nil {
-                    onPresetsChanged()
-                }
-            }
-            Toggle("Show in Menu Bar", isOn: Binding(
-                get: { feature.isMenuBarFavorite(preset.id) },
-                set: { newValue in
-                    guard newValue != feature.isMenuBarFavorite(preset.id) else { return }
-                    _ = feature.toggleMenuBarFavorite(preset.id)
-                }
-            ))
-            .disabled(menuBarFull)
-            Divider()
-            Button("Delete…", role: .destructive, action: onRequestDelete)
-                .disabled(feature.presets.count <= 1)
-        } label: {
-            Image(systemName: "ellipsis")
-                .frame(width: 24, height: 22)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityLabel("More actions for \(preset.name)")
     }
 
     private func editor(_ preset: UmbrellaSunPreset) -> some View {
@@ -885,12 +962,11 @@ private struct PresetLibraryRow: View {
                 value: Binding(
                     get: { Double(preset.colorTemp) },
                     set: { newValue in
-                        guard isAdjustingTemperature else { return }
                         update(preset) { $0.colorTemp = Int(newValue.rounded()) }
                     }
                 ),
                 isDisabled: preset.isDarkroom,
-                onEditingChanged: { isAdjustingTemperature = $0 }
+                onEditingChanged: { _ in }
             )
             .padding(.vertical, 4)
 
@@ -902,19 +978,6 @@ private struct PresetLibraryRow: View {
                         get: { preset.isDarkroom },
                         set: { enabled in
                             update(preset) { $0.isDarkroom = enabled }
-                        }
-                    )
-                )
-            }
-
-            editorLine {
-                SettingsSwitch(
-                    title: "Dim external displays only",
-                    caption: "The built-in display is left unchanged.",
-                    isOn: Binding(
-                        get: { preset.isFilmMode },
-                        set: { enabled in
-                            update(preset) { $0.isFilmMode = enabled }
                         }
                     )
                 )
@@ -942,7 +1005,6 @@ private struct PresetLibraryRow: View {
                         updated.brightness = feature.brightness
                         updated.colorTemp = feature.colorTemp
                         updated.isDarkroom = feature.isDarkroom
-                        updated.isFilmMode = feature.isFilmModeEnabled
                     }
                 }
                 Button("Apply") {
@@ -1412,5 +1474,259 @@ private enum BrightnessSwatch {
         }
         func clamp(_ value: Double) -> Double { min(255, max(0, value)) }
         return (clamp(red), clamp(green), clamp(blue))
+    }
+}
+
+private struct PresetMenuAnchorKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private struct KelvinGradientSlider: View {
+    @Binding var kelvin: Int
+    var isEnabled = true
+    var onEditingChanged: (Bool) -> Void
+
+    private let minimum = 1200
+    private let maximum = 6500
+    private let thumbSize: CGFloat = 20
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = max(geo.size.width, thumbSize)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(trackGradient)
+                    .frame(height: 6)
+                Circle()
+                    .fill(Color(white: 0.95))
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.45), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .offset(x: thumbOrigin(in: width))
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(drag(in: width))
+        }
+        .frame(height: thumbSize)
+        .opacity(isEnabled ? 1 : 0.4)
+        .accessibilityElement()
+        .accessibilityLabel("Color temperature")
+        .accessibilityValue("\(kelvin)K")
+        .accessibilityAdjustableAction { direction in
+            guard isEnabled else { return }
+            let delta = direction == .increment ? UmbrellaBrightnessFeature.colorTempStep : -UmbrellaBrightnessFeature.colorTempStep
+            onEditingChanged(true)
+            kelvin = snapped(kelvin + delta)
+            onEditingChanged(false)
+        }
+    }
+
+    private var trackGradient: LinearGradient {
+        var stops = Array(stride(from: minimum, to: maximum, by: 500))
+        stops.append(maximum)
+        let colors = stops.map { BrightnessSwatch.kelvinColor($0) }
+        return LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing)
+    }
+
+    private func drag(in width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard isEnabled else { return }
+                onEditingChanged(true)
+                kelvin = kelvin(at: value.location.x, width: width)
+            }
+            .onEnded { _ in
+                guard isEnabled else { return }
+                onEditingChanged(false)
+            }
+    }
+
+    private func thumbOrigin(in width: CGFloat) -> CGFloat {
+        let span = max(width - thumbSize, 1)
+        let fraction = CGFloat(kelvin - minimum) / CGFloat(maximum - minimum)
+        return min(max(0, fraction), 1) * span
+    }
+
+    private func kelvin(at x: CGFloat, width: CGFloat) -> Int {
+        let span = max(width - thumbSize, 1)
+        let fraction = min(max(0, (x - thumbSize / 2) / span), 1)
+        let raw = Double(minimum) + Double(fraction) * Double(maximum - minimum)
+        return snapped(Int(raw.rounded()))
+    }
+
+    private func snapped(_ value: Int) -> Int {
+        let step = UmbrellaBrightnessFeature.colorTempStep
+        let rounded = Int((Double(value) / Double(step)).rounded()) * step
+        return min(maximum, max(minimum, rounded))
+    }
+}
+
+private struct PresetActionMenu: View {
+    var presetName: String
+    var showsInMenuBar: Bool
+    var menuBarFull: Bool
+    var canDelete: Bool
+    var onApply: () -> Void
+    var onEdit: () -> Void
+    var onDuplicate: () -> Void
+    var onToggleMenuBar: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            menuButton("Apply", action: onApply)
+            menuButton("Edit", action: onEdit)
+            menuButton("Duplicate", action: onDuplicate)
+            menuButton(
+                "Show in Menu Bar",
+                checked: showsInMenuBar,
+                disabled: menuBarFull,
+                action: onToggleMenuBar
+            )
+            Divider()
+                .padding(.vertical, 4)
+            menuButton("Delete…", danger: true, disabled: !canDelete, action: onDelete)
+        }
+        .padding(5)
+        .frame(width: 220)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("More actions for \(presetName)")
+    }
+
+    private func menuButton(
+        _ title: String,
+        checked: Bool = false,
+        danger: Bool = false,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        PresetActionMenuButton(
+            title: title,
+            checked: checked,
+            danger: danger,
+            disabled: disabled,
+            action: action
+        )
+    }
+}
+
+private struct PresetActionMenuButton: View {
+    var title: String
+    var checked: Bool
+    var danger: Bool
+    var disabled: Bool
+    var action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 14)
+                    .opacity(checked ? 1 : 0)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 13))
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(foreground)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(isHovering && !disabled ? Color.accentColor : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .onHover { isHovering = $0 }
+    }
+
+    private var foreground: Color {
+        if disabled { return .secondary.opacity(0.45) }
+        if isHovering { return .white }
+        if danger { return .red }
+        return .primary
+    }
+}
+
+private struct DeletePresetSheet: View {
+    var title: String
+    var message: String
+    var onCancel: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onCancel)
+                card
+                    .padding(.top, geo.size.height * 0.18)
+            }
+        }
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private var card: some View {
+        VStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(red: 1, green: 0.70, blue: 0.25), Color(red: 1, green: 0.48, blue: 0.10)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 44, height: 44)
+                    .overlay(
+                        Image(systemName: "sun.max.fill")
+                            .foregroundStyle(.white)
+                    )
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 10)
+                Text(message)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
+                HStack(spacing: 8) {
+                    Button("Cancel", action: onCancel)
+                        .keyboardShortcut(.cancelAction)
+                        .frame(maxWidth: .infinity)
+                    Button("Delete", action: onDelete)
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.top, 14)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+            .frame(width: 264)
+            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.45), radius: 24, y: 12)
     }
 }
