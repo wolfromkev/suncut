@@ -126,6 +126,7 @@ struct BrightnessSettingsTab: View {
                 Button("Restore Display Color") {
                     feature.restoreDisplayColor()
                 }
+                .buttonStyle(MockChromeButtonStyle())
                 .help("Reset system display color, then re-apply current Suncut settings.")
             }
         }
@@ -329,7 +330,14 @@ struct BrightnessSettingsTab: View {
             groupedHeader("Presets")
             groupedBox {
             ForEach(feature.presets) { preset in
-                groupRow(top: 0, bottom: 0, minHeight: 0, divider: preset.id != feature.presets.first?.id) {
+                groupRow(
+                    top: 0,
+                    bottom: 0,
+                    minHeight: 0,
+                    leading: 0,
+                    trailing: 0,
+                    divider: preset.id != feature.presets.first?.id
+                ) {
                 PresetLibraryRow(
                     feature: feature,
                     presetID: preset.id,
@@ -406,11 +414,14 @@ struct BrightnessSettingsTab: View {
         top: CGFloat? = nil,
         bottom: CGFloat? = nil,
         minHeight: CGFloat? = nil,
+        leading: CGFloat = 14,
+        trailing: CGFloat = 14,
         divider: Bool = true,
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
-            .padding(.horizontal, 14)
+            .padding(.leading, leading)
+            .padding(.trailing, trailing)
             .padding(.top, top ?? (stacked ? 11 : 10))
             .padding(.bottom, bottom ?? (stacked ? 12 : 10))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -768,8 +779,7 @@ struct BrightnessSettingsTab: View {
             Button("Resume Schedule") {
                 feature.resumeSchedule()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(MockChromeButtonStyle(kind: .small))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -893,23 +903,110 @@ private struct SettingsSwitch: View {
     var isDisabled = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .foregroundStyle(BrightnessChrome.text)
-                if let caption, !caption.isEmpty {
-                    Text(caption)
-                        .font(.system(size: 11))
-                        .foregroundStyle(BrightnessChrome.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+        Button {
+            guard !isDisabled else { return }
+            isOn.toggle()
+        } label: {
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .foregroundStyle(BrightnessChrome.text)
+                    if let caption, !caption.isEmpty {
+                        Text(caption)
+                            .font(.system(size: 11))
+                            .foregroundStyle(BrightnessChrome.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                Spacer(minLength: 16)
+                MockSwitchTrack(isOn: isOn)
+                    .opacity(isDisabled ? 0.35 : 1)
             }
-            Spacer(minLength: 16)
-            Toggle(title, isOn: $isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .disabled(isDisabled)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var accessibilityLabel: String {
+        guard let caption, !caption.isEmpty else { return title }
+        return "\(title). \(caption)"
+    }
+}
+
+private struct MockSwitchTrack: View {
+    var isOn: Bool
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(isOn ? BrightnessChrome.accent : Color.white.opacity(0.17))
+            Circle()
+                .fill(Color.white)
+                .frame(width: 16, height: 16)
+                .shadow(color: Color.black.opacity(0.45), radius: 1, y: 1)
+                .offset(x: isOn ? 15 : 1)
+        }
+        .frame(width: 32, height: 18)
+        .animation(.easeInOut(duration: 0.18), value: isOn)
+    }
+}
+
+private struct MockChromeButtonStyle: ButtonStyle {
+    enum Kind {
+        case regular
+        case small
+        case primary
+    }
+
+    var kind: Kind = .regular
+
+    func makeBody(configuration: Configuration) -> some View {
+        MockChromeButtonBody(kind: kind, isPressed: configuration.isPressed) {
+            configuration.label
+        }
+    }
+}
+
+private struct MockChromeButtonBody<Label: View>: View {
+    var kind: MockChromeButtonStyle.Kind
+    var isPressed: Bool
+    @ViewBuilder var label: () -> Label
+    @State private var hovering = false
+
+    var body: some View {
+        label()
+            .font(.system(size: kind == .small ? 12 : 13))
+            .foregroundStyle(kind == .primary ? Color.white : BrightnessChrome.text)
+            .padding(.horizontal, kind == .small ? 9 : 11)
+            .frame(height: kind == .small ? 22 : 24)
+            .background(fill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.45), lineWidth: 0.5)
+            )
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
+                    .mask(alignment: .top) {
+                        Rectangle().frame(height: 1)
+                    }
+            }
+            .shadow(color: Color.black.opacity(0.3), radius: 1.5, y: 1)
+            .onHover { hovering = $0 }
+    }
+
+    private var fill: Color {
+        if kind == .primary {
+            return isPressed || hovering
+                ? Color(red: 36 / 255, green: 145 / 255, blue: 255 / 255)
+                : BrightnessChrome.accent
+        }
+        if isPressed { return Color.white.opacity(0.22) }
+        if hovering { return Color.white.opacity(0.16) }
+        return Color.white.opacity(0.11)
     }
 }
 
@@ -1057,6 +1154,7 @@ private struct PresetLibraryRow: View {
                 row(preset)
                 if isExpanded {
                     editor(preset)
+                        .padding(.horizontal, 8)
                         .padding(.bottom, 8)
                 }
             }
@@ -1089,8 +1187,7 @@ private struct PresetLibraryRow: View {
                 Button("Apply") {
                     feature.applyPreset(id: preset.id)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(MockChromeButtonStyle(kind: .small))
                 .opacity(isHovering ? 1 : 0)
                 .allowsHitTesting(isHovering)
             }
@@ -1122,7 +1219,11 @@ private struct PresetLibraryRow: View {
             .foregroundStyle(.secondary)
             .accessibilityLabel(isExpanded ? "Close \(preset.name)" : "Edit \(preset.name)")
         }
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
         .frame(minHeight: 42)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onHover { isHovering = $0 }
     }
 
@@ -1250,7 +1351,7 @@ private struct PresetLibraryRow: View {
                 )
             }
 
-            HStack {
+            HStack(spacing: 8) {
                 Spacer()
                 Button("Use Current Settings") {
                     update(preset) { updated in
@@ -1259,10 +1360,11 @@ private struct PresetLibraryRow: View {
                         updated.isDarkroom = feature.isDarkroom
                     }
                 }
+                .buttonStyle(MockChromeButtonStyle())
                 Button("Apply") {
                     feature.applyPreset(id: preset.id)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(MockChromeButtonStyle(kind: .primary))
             }
             .padding(.top, 10)
         }
@@ -1623,31 +1725,30 @@ private struct BrightnessScheduleGraph: View {
         drawLabel(context: &context, title: "Sunset", minutes: sunsetMinutes, width: width)
     }
 
-    /// Kelvin fill at 34% opacity, masked so it fades from 90% at the top of the plot to 12% on the axis.
+    /// Kelvin fill at 34% opacity, masked so it fades smoothly from 90% at the top of the plot to 12% on the axis.
     private func fillCurve(
         _ fill: Path,
         shading: GraphicsContext.Shading,
         context: inout GraphicsContext,
         width: CGFloat
     ) {
-        let fadeTop: CGFloat = 0.9
-        let fadeBottom: CGFloat = 0.12
-        let fillOpacity: CGFloat = 0.34
-        let band: CGFloat = 2
-        var y = plotTop
-        while y < axisY {
-            let height = min(band, axisY - y)
-            let t = (y + height / 2 - plotTop) / max(axisY - plotTop, 1)
-            let alpha = fillOpacity * (fadeTop + (fadeBottom - fadeTop) * t)
-            var slice = context
-            slice.clip(to: fill)
-            slice.clip(to: Path(CGRect(x: 0, y: y, width: width, height: height)))
-            slice.opacity = Double(alpha)
-            slice.fill(
+        let fade = GraphicsContext.Shading.linearGradient(
+            Gradient(stops: [
+                Gradient.Stop(color: Color.white.opacity(0.9), location: 0),
+                Gradient.Stop(color: Color.white.opacity(0.12), location: 1)
+            ]),
+            startPoint: CGPoint(x: 0, y: plotTop),
+            endPoint: CGPoint(x: 0, y: axisY)
+        )
+        context.drawLayer { layer in
+            layer.opacity = 0.34
+            layer.fill(fill, with: shading)
+            layer.opacity = 1
+            layer.blendMode = .destinationIn
+            layer.fill(
                 Path(CGRect(x: 0, y: 0, width: width, height: canvasHeight)),
-                with: shading
+                with: fade
             )
-            y += band
         }
     }
 
