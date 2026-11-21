@@ -211,7 +211,7 @@ struct BrightnessSettingsTab: View {
                     }
                 }
             }
-            .disabled(!feature.isAutoMode)
+            .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
 
             SettingsSwitch(
                 title: "Use location for sunrise and sunset",
@@ -221,7 +221,7 @@ struct BrightnessSettingsTab: View {
                     set: { feature.setUseLocationSchedule($0) }
                 )
             )
-            .disabled(!feature.isAutoMode)
+            .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
 
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -238,16 +238,18 @@ struct BrightnessSettingsTab: View {
                     displayedComponents: .hourAndMinute
                 )
                 .datePickerStyle(.field)
-                .disabled(feature.useLocationSchedule)
+                .opacity(feature.useLocationSchedule ? 0.55 : 1)
+                .allowsHitTesting(!feature.useLocationSchedule)
                 DatePicker(
                     "Sunset",
                     selection: sunsetDate,
                     displayedComponents: .hourAndMinute
                 )
                 .datePickerStyle(.field)
-                .disabled(feature.useLocationSchedule)
+                .opacity(feature.useLocationSchedule ? 0.55 : 1)
+                .allowsHitTesting(!feature.useLocationSchedule)
             }
-            .disabled(!feature.isAutoMode)
+            .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
 
             Picker(selection: twilightSelection) {
                 ForEach(twilightChoices, id: \.self) { minutes in
@@ -263,7 +265,7 @@ struct BrightnessSettingsTab: View {
                 }
             }
             .pickerStyle(.menu)
-            .disabled(!feature.isAutoMode)
+            .modifier(ScheduleBodyFade(isAutomatic: feature.isAutoMode))
         } header: {
             Text("Schedule")
         }
@@ -272,7 +274,7 @@ struct BrightnessSettingsTab: View {
     private func scheduleStatus(at minutes: Int) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(feature.isAutoMode
-                ? UmbrellaSolarSchedule.statusText(
+                ? BrightnessScheduleCopy.phaseText(
                     at: minutes,
                     sunrise: feature.sunriseMinutes,
                     sunset: feature.sunsetMinutes,
@@ -357,13 +359,9 @@ struct BrightnessSettingsTab: View {
     }
 
     private var locationCaption: String {
-        guard feature.useLocationSchedule else {
-            return "Times are set by hand below."
-        }
-        if let locationName = feature.locationName, !locationName.isEmpty {
-            return locationName
-        }
-        return "Updated daily from your location."
+        feature.useLocationSchedule
+            ? "Updated daily from your location."
+            : "Times are set by hand below."
     }
 
     private var twilightChoices: [Int] {
@@ -1106,6 +1104,57 @@ private struct PresetBadge: View {
     }
 }
 
+private struct ScheduleBodyFade: ViewModifier {
+    var isAutomatic: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isAutomatic ? 1 : 0.38)
+            .allowsHitTesting(isAutomatic)
+            .animation(.easeInOut(duration: 0.2), value: isAutomatic)
+    }
+}
+
+private struct SchedulePillSizeKey: PreferenceKey {
+    static var defaultValue: [String: CGSize] = [:]
+
+    static func reduce(value: inout [String: CGSize], nextValue: () -> [String: CGSize]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private enum BrightnessScheduleCopy {
+    /// Phase lines from the settings mock. The curve itself stays `daylightProgress`.
+    static func phaseText(at minutes: Int, sunrise: Int, sunset: Int, transition: Int) -> String {
+        let dawn = UmbrellaSolarSchedule.wrap(sunrise - max(0, transition))
+        let dusk = UmbrellaSolarSchedule.wrap(sunset + max(0, transition))
+        let rise = UmbrellaSolarSchedule.wrap(sunrise)
+        let set = UmbrellaSolarSchedule.wrap(sunset)
+        let midday = UmbrellaSolarSchedule.middayMinutes(sunrise: sunrise, sunset: sunset)
+        let span = UmbrellaSolarSchedule.forwardDistance(from: dawn, to: dusk)
+        let elapsed = UmbrellaSolarSchedule.forwardDistance(from: dawn, to: UmbrellaSolarSchedule.wrap(minutes))
+        if span == 0 || elapsed >= span {
+            return "Night · Holding at the Night level"
+        }
+        func along(_ target: Int) -> Int {
+            UmbrellaSolarSchedule.forwardDistance(from: dawn, to: target)
+        }
+        if elapsed < along(rise) {
+            return "Dawn twilight · Starting to brighten"
+        }
+        if elapsed < along(UmbrellaSolarSchedule.wrap(midday - 45)) {
+            return "Morning · Brightening toward midday"
+        }
+        if elapsed <= along(UmbrellaSolarSchedule.wrap(midday + 45)) {
+            return "Midday · At the Day level"
+        }
+        if elapsed < along(set) {
+            return "Afternoon · Easing down from midday"
+        }
+        return "Evening twilight · Dimming toward night"
+    }
+}
+
 private struct BrightnessScheduleGraph: View {
     var sunriseMinutes: Int
     var sunsetMinutes: Int
@@ -1122,6 +1171,7 @@ private struct BrightnessScheduleGraph: View {
     var onSunset: (Int) -> Void
 
     @State private var draggedHandle: ScheduleHandle?
+    @State private var pillSizes: [String: CGSize] = [:]
 
     private let canvasHeight: CGFloat = 178
     private let plotTop: CGFloat = 34
@@ -1138,7 +1188,7 @@ private struct BrightnessScheduleGraph: View {
                 .frame(width: width, height: canvasHeight)
                 .accessibilityLabel("Brightness schedule over 24 hours")
                 .accessibilityValue(
-                    UmbrellaSolarSchedule.statusText(
+                    BrightnessScheduleCopy.phaseText(
                         at: nowMinutes,
                         sunrise: sunriseMinutes,
                         sunset: sunsetMinutes,
@@ -1152,17 +1202,18 @@ private struct BrightnessScheduleGraph: View {
                     .gesture(dragGesture(width: width))
                     .accessibilityHidden(true)
 
-                pill(title: "DAY", accessibility: "Day preset, midday peak", selection: $dayPresetID)
+                pill(title: "DAY", accessibility: "Day preset, midday peak", sizeKey: "day", selection: $dayPresetID)
                     .offset(dayPillOffset(width: width))
-                pill(title: "NIGHT", accessibility: "Night preset, night floor", selection: $nightPresetID)
+                pill(title: "NIGHT", accessibility: "Night preset, night floor", sizeKey: "night", selection: $nightPresetID)
                     .offset(nightPillOffset(width: width))
             }
+            .onPreferenceChange(SchedulePillSizeKey.self) { pillSizes = $0 }
         }
         .frame(height: canvasHeight)
     }
 
-    private func pill(title: String, accessibility: String, selection: Binding<String>) -> some View {
-        HStack(spacing: 4) {
+    private func pill(title: String, accessibility: String, sizeKey: String, selection: Binding<String>) -> some View {
+        HStack(spacing: 5) {
             Text(title)
                 .font(.system(size: 9.5, weight: .semibold))
                 .tracking(0.6)
@@ -1177,12 +1228,22 @@ private struct BrightnessScheduleGraph: View {
             .controlSize(.small)
             .accessibilityLabel(accessibility)
         }
-        .padding(.leading, 8)
+        .padding(.leading, 9)
         .padding(.trailing, 4)
         .frame(height: 24)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.17), lineWidth: 1))
         .fixedSize()
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SchedulePillSizeKey.self,
+                    value: [sizeKey: proxy.size]
+                )
+            }
+        }
+        .background(Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255).opacity(0.94), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.17), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+        .environment(\.colorScheme, .dark)
     }
 
     private func dragGesture(width: CGFloat) -> some Gesture {
@@ -1250,9 +1311,7 @@ private struct BrightnessScheduleGraph: View {
             startPoint: CGPoint(x: 0, y: 0),
             endPoint: CGPoint(x: width, y: 0)
         )
-        var faded = context
-        faded.opacity = 0.34
-        faded.fill(fill, with: shading)
+        fillCurve(fill, shading: shading, context: &context, width: width)
         context.stroke(curve, with: shading, style: StrokeStyle(lineWidth: 2, lineJoin: .round))
 
         if showsNow {
@@ -1277,6 +1336,34 @@ private struct BrightnessScheduleGraph: View {
             drawLabel(context: &context, title: "Midday", minutes: midday, width: width)
         }
         drawLabel(context: &context, title: "Sunset", minutes: sunsetMinutes, width: width)
+    }
+
+    /// Kelvin fill at 34% opacity, masked so it fades from 90% at the top of the plot to 12% on the axis.
+    private func fillCurve(
+        _ fill: Path,
+        shading: GraphicsContext.Shading,
+        context: inout GraphicsContext,
+        width: CGFloat
+    ) {
+        let fadeTop: CGFloat = 0.9
+        let fadeBottom: CGFloat = 0.12
+        let fillOpacity: CGFloat = 0.34
+        let band: CGFloat = 2
+        var y = plotTop
+        while y < axisY {
+            let height = min(band, axisY - y)
+            let t = (y + height / 2 - plotTop) / max(axisY - plotTop, 1)
+            let alpha = fillOpacity * (fadeTop + (fadeBottom - fadeTop) * t)
+            var slice = context
+            slice.clip(to: fill)
+            slice.clip(to: Path(CGRect(x: 0, y: y, width: width, height: height)))
+            slice.opacity = Double(alpha)
+            slice.fill(
+                Path(CGRect(x: 0, y: 0, width: width, height: canvasHeight)),
+                with: shading
+            )
+            y += band
+        }
     }
 
     private func fillTwilight(context: inout GraphicsContext, width: CGFloat, start: Int, end: Int) {
@@ -1318,6 +1405,7 @@ private struct BrightnessScheduleGraph: View {
         if useLocation {
             let dot = Path(ellipseIn: CGRect(x: x - 3, y: axisY - 3, width: 6, height: 6))
             context.fill(dot, with: .color(Color.white.opacity(0.45)))
+            context.stroke(dot, with: .color(Color.primary.opacity(0.35)), lineWidth: 1)
             return
         }
         let grip = Path(
@@ -1332,13 +1420,13 @@ private struct BrightnessScheduleGraph: View {
     private func drawLabel(context: inout GraphicsContext, title: String, minutes: Int, width: CGFloat) {
         let inset = min(52, width * 0.18)
         let x = min(max(xOf(minutes, width: width), inset), max(inset, width - inset))
-        context.draw(
-            Text("\(title) \(timeLabel(minutes))")
-                .font(.caption2)
-                .foregroundColor(.secondary),
-            at: CGPoint(x: x, y: axisY + 6),
-            anchor: .top
-        )
+        let label = Text(title)
+            .font(.system(size: 11))
+            .foregroundColor(Color.primary.opacity(0.32))
+            + Text(" \(timeLabel(minutes))")
+            .font(.system(size: 11))
+            .foregroundColor(Color.primary.opacity(0.55))
+        context.draw(label, at: CGPoint(x: x, y: axisY + 16), anchor: .top)
     }
 
     private func temperatureStops() -> [Gradient.Stop] {
@@ -1352,7 +1440,7 @@ private struct BrightnessScheduleGraph: View {
 
     private func dayPillOffset(width: CGFloat) -> CGSize {
         let midday = UmbrellaSolarSchedule.middayMinutes(sunrise: sunriseMinutes, sunset: sunsetMinutes)
-        let widthEstimate = pillWidth(named: presets.first { $0.id == dayPresetID }?.name ?? dayPreset.name)
+        let widthEstimate = measuredPillWidth("day", named: presets.first { $0.id == dayPresetID }?.name ?? dayPreset.name)
         let x = min(max(0, xOf(midday, width: width) - widthEstimate / 2), max(0, width - widthEstimate))
         let y = max(0, yOf(brightness: CGFloat(dayPreset.brightness)) - 32)
         return CGSize(width: x, height: y)
@@ -1369,14 +1457,17 @@ private struct BrightnessScheduleGraph: View {
         } else {
             centerX = (xOf(dusk, width: width) + xOf(dawn, width: width)) / 2
         }
-        let widthEstimate = pillWidth(named: presets.first { $0.id == nightPresetID }?.name ?? nightPreset.name)
+        let widthEstimate = measuredPillWidth("night", named: presets.first { $0.id == nightPresetID }?.name ?? nightPreset.name)
         let x = min(max(0, centerX - widthEstimate / 2), max(0, width - widthEstimate))
         let y = max(0, yOf(brightness: CGFloat(nightPreset.brightness)) - 32)
         return CGSize(width: x, height: y)
     }
 
-    private func pillWidth(named name: String) -> CGFloat {
-        CGFloat(name.count) * 7.2 + 70
+    private func measuredPillWidth(_ key: String, named name: String) -> CGFloat {
+        if let width = pillSizes[key]?.width, width > 1 {
+            return width
+        }
+        return CGFloat(name.count) * 7.2 + 78
     }
 
     private func curveBrightness(at minutes: Int) -> CGFloat {
@@ -1594,12 +1685,13 @@ private struct PresetActionMenu: View {
         }
         .padding(5)
         .frame(width: 220)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color(red: 42 / 255, green: 42 / 255, blue: 42 / 255).opacity(0.97), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
+        .shadow(color: .black.opacity(0.55), radius: 16, y: 8)
+        .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("More actions for \(presetName)")
     }
@@ -1630,7 +1722,7 @@ private struct PresetActionMenuButton: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: action) {
+        Button(action: { if !disabled { action() } }) {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 11, weight: .semibold))
@@ -1650,8 +1742,10 @@ private struct PresetActionMenuButton: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(disabled)
-        .onHover { isHovering = $0 }
+        .allowsHitTesting(!disabled)
+        .onHover { hovering in
+            if !disabled { isHovering = hovering }
+        }
     }
 
     private var foreground: Color {
@@ -1699,22 +1793,30 @@ private struct DeletePresetSheet: View {
                     .accessibilityHidden(true)
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.88))
                     .multilineTextAlignment(.center)
                     .padding(.top, 10)
                 Text(message)
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .lineSpacing(3)
                     .multilineTextAlignment(.center)
                     .padding(.top, 6)
                 HStack(spacing: 8) {
-                    Button("Cancel", action: onCancel)
-                        .keyboardShortcut(.cancelAction)
-                        .frame(maxWidth: .infinity)
-                    Button("Delete", action: onDelete)
-                        .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                        .frame(maxWidth: .infinity)
+                    sheetButton(
+                        "Cancel",
+                        fill: Color.white.opacity(0.11),
+                        foreground: Color.white.opacity(0.88),
+                        shortcut: .cancelAction,
+                        action: onCancel
+                    )
+                    sheetButton(
+                        "Delete",
+                        fill: Color(red: 1, green: 69 / 255, blue: 58 / 255),
+                        foreground: .white,
+                        shortcut: .defaultAction,
+                        action: onDelete
+                    )
                 }
                 .padding(.top, 14)
             }
@@ -1722,11 +1824,30 @@ private struct DeletePresetSheet: View {
             .padding(.top, 18)
             .padding(.bottom, 14)
             .frame(width: 264)
-            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color(red: 44 / 255, green: 44 / 255, blue: 44 / 255), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.45), radius: 24, y: 12)
+            .shadow(color: .black.opacity(0.6), radius: 25, y: 10)
+    }
+
+    private func sheetButton(
+        _ title: String,
+        fill: Color,
+        foreground: Color,
+        shortcut: KeyboardShortcut,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(foreground)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .background(fill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(shortcut)
     }
 }
