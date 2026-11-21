@@ -1,6 +1,6 @@
 # ROADMAP
 
-**What:** macOS menu-bar helper for SimpleSnip and display brightness/Film Mode.
+**What:** macOS menu-bar helper for SimpleSnip and display brightness.
 
 ## Next
 1. Finish the Mac App Store listing (below). Build 5 is already uploaded.
@@ -33,7 +33,7 @@ Still to do in App Store Connect, on version 1.0:
 
 **Promotional text**
 
-Menu bar screenshots, area recording, and display warmth. Snip a region, copy the text, and dim the evening with Film Mode.
+Menu bar screenshots, area recording, and display warmth. Snip a region, copy the text, and dim the evening with the daytime curve.
 
 **Description**
 
@@ -41,7 +41,7 @@ Suncut lives in the menu bar for screenshots, screen recording, and display warm
 
 SimpleSnip takes an area, a window, or the full screen, copies the image, and can read the text in a selection. You can also record an area with system audio or the microphone.
 
-Brightness controls warmth and brightness, saves presets, and includes Film Mode to dim external displays. An optional daytime curve moves from a night floor to a midday peak, using times you set or your location for sunrise and sunset.
+Brightness controls warmth and brightness and saves presets. An optional daytime curve moves from a night floor to a midday peak, using times you set or your location for sunrise and sunset. A manual change pauses that curve until the next sunrise or sunset.
 
 Launch at login and the global hotkeys are included.
 
@@ -51,12 +51,12 @@ screenshot,screen recording,brightness,warmth,menu bar,snip,OCR,hotkey
 
 **Review notes**
 
-Menu bar utility. Screen Recording is for screenshots, window capture, text recognition, and area recording. The microphone is used only when Record microphone is on. Location is used only when the daytime curve follows sunrise and sunset. No account is required. Click the menu bar icon, take an area snip, and move the brightness slider. Film Mode dims external displays and restores them when it is turned off or the app quits.
+Menu bar utility. Screen Recording is for screenshots, window capture, text recognition, and area recording. The microphone is used only when Record microphone is on. Location is used only when the daytime curve follows sunrise and sunset. No account is required. Click the menu bar icon, take an area snip, and move the brightness slider. Turning Automatic brightness off, or quitting, leaves the display at the current brightness and warmth.
 
 Upload again only if build 5 is missing. Use release Xcode (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`), not the beta. Commands are in `docs/PUBLISHING.md`. The App Store configuration’s version is 1.0; the GitHub Release configuration is 1.0.11.
 
 ## Decisions
 - Localhost-only personal tool — no cloud backend
 - Local installs sign with a stable keychain identity so Screen Recording, Microphone, and Accessibility survive rebuilds
-- Film Mode dirty-flag: unclean exit restores gamma and leaves Film Mode off
+- Film Mode no longer changes gamma. A saved flag is cleared on launch so an older setting cannot dim the display
 - Auto brightness follows a sine curve (night floor → midday peak → night) between sunrise/sunset; twilight minutes pad the rise/fall; location can replace manual sun times
