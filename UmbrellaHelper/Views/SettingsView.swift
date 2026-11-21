@@ -77,7 +77,7 @@ struct SettingsView: View {
 
     private var settingsTabBar: some View {
         HStack {
-            Spacer(minLength: 78)
+            Spacer(minLength: 88)
             HStack(spacing: 0) {
                 settingsTabButton("Keybindings", tab: .keybindings)
                 settingsTabButton("Brightness", tab: .brightness)
@@ -89,7 +89,7 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
             )
-            Spacer(minLength: 78)
+            Spacer(minLength: 88)
         }
         .frame(height: 52)
         .background(Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255))
