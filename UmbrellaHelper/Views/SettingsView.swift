@@ -58,7 +58,7 @@ struct SettingsView: View {
             .tag(UmbrellaSettingsTab.brightness)
 
             SimpleSnipTabView(feature: appModel.simpleSnipFeature)
-                .tabItem { Text("SimpleSnip") }
+                .tabItem { Text("Snipping Tool") }
                 .tag(UmbrellaSettingsTab.simpleSnip)
         }
         .padding(16)
@@ -96,7 +96,7 @@ struct SettingsView: View {
                     }
                 }
 
-                sectionCard("SimpleSnip") {
+                sectionCard("Snip Tool") {
                     editableBindingRow("Snip area", target: .snipArea)
                     editableBindingRow("Snip window", target: .snipWindow)
                     editableBindingRow("Snip full screen", target: .snipFullScreen)
@@ -104,7 +104,7 @@ struct SettingsView: View {
                     editableBindingRow("Copy text from area", target: .snipText)
                 }
 
-                sectionCard("SunScreen") {
+                sectionCard("Brightness Control") {
                     editableBindingRow("Brightness down", target: .brightnessDown)
                     editableBindingRow("Brightness up", target: .brightnessUp)
                     editableBindingRow("Warmer", target: .warmthUp)
