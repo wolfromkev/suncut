@@ -335,26 +335,42 @@ private struct BrightnessTabView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 section("Display") {
-                    Toggle("Automatic Brightness", isOn: Binding(
-                        get: { feature.isAutoMode },
-                        set: { feature.setAutoMode($0) }
-                    ))
-                    Text("Follows a daytime curve: dim at night, brightest at midday, then dim again toward sunset. Dragging a slider turns this off.")
+                    modeToggle(
+                        "Automatic Brightness",
+                        explanation: BrightnessModeCopy.automatic,
+                        isOn: Binding(
+                            get: { feature.isAutoMode },
+                            set: { feature.setAutoMode($0) }
+                        )
+                    )
+                    Text(BrightnessModeCopy.automaticCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle("Blue Light Removal", isOn: Binding(
-                        get: { feature.isDarkroom },
-                        set: { feature.setDarkroom($0) }
-                    ))
-                    Toggle("Keep Awake", isOn: Binding(
-                        get: { feature.isKeepAwakeEnabled },
-                        set: { feature.setKeepAwake($0) }
-                    ))
-                    Toggle("Film Mode", isOn: Binding(
-                        get: { feature.isFilmModeEnabled },
-                        set: { feature.setFilmMode($0) }
-                    ))
-                    Text("Dims external monitors; leaves the built-in MacBook display unchanged.")
+                    modeToggle(
+                        "Blue Light Removal",
+                        explanation: BrightnessModeCopy.blueLightRemoval,
+                        isOn: Binding(
+                            get: { feature.isDarkroom },
+                            set: { feature.setDarkroom($0) }
+                        )
+                    )
+                    modeToggle(
+                        "Keep Awake",
+                        explanation: BrightnessModeCopy.keepAwake,
+                        isOn: Binding(
+                            get: { feature.isKeepAwakeEnabled },
+                            set: { feature.setKeepAwake($0) }
+                        )
+                    )
+                    modeToggle(
+                        "Film Mode",
+                        explanation: BrightnessModeCopy.filmMode,
+                        isOn: Binding(
+                            get: { feature.isFilmModeEnabled },
+                            set: { feature.setFilmMode($0) }
+                        )
+                    )
+                    Text(BrightnessModeCopy.filmModeCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 6) {
@@ -647,6 +663,15 @@ private struct BrightnessTabView: View {
         dateFrom(minutes: minutes).formatted(date: .omitted, time: .shortened)
     }
 
+    private func modeToggle(_ title: String, explanation: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            Toggle(title, isOn: isOn)
+                .fixedSize(horizontal: true, vertical: false)
+            BrightnessModeInfoButton(title: title, explanation: explanation)
+            Spacer(minLength: 0)
+        }
+    }
+
     @ViewBuilder
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -660,6 +685,57 @@ private struct BrightnessTabView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: NSColor.controlBackgroundColor))
         )
+    }
+}
+
+/// Explanations shown by the Brightness tab info buttons. Wording follows
+/// `UmbrellaBrightnessFeature` and `UmbrellaBlueLightManager`.
+private enum BrightnessModeCopy {
+    static let automaticCaption = "Follows a daytime curve: dim at night, brightest at midday, then dim again toward sunset. Dragging a slider turns this off."
+
+    static let automatic = """
+    Follows a daytime curve: dim at night, brightest at midday, then dim again toward sunset. It blends the Night preset into the Day preset, including color temperature, and updates once a minute. If the Night preset has Blue Light Removal on, that applies only at the night floor and stays off through the rest of the day. Dragging a brightness or color temperature slider turns this off, as does turning on Blue Light Removal or applying a preset.
+    """
+
+    static let blueLightRemoval = """
+    Turns the picture red: green and blue gamma are zero, and red is 80% of the current brightness. Turning this on also turns Automatic Brightness off. The color temperature slider stays disabled until this is off. Dragging the brightness slider turns this off.
+    """
+
+    static let keepAwake = """
+    Stops the Mac from going to sleep while idle, and keeps the display from sleeping while idle. You can still put the Mac to sleep yourself. Turning this off, or quitting Suncut, allows idle sleep again. It does not change brightness or color.
+    """
+
+    static let filmModeCaption = "Dims every monitor to 10% brightness."
+
+    static let filmMode = """
+    Dims every monitor to 10% red, green, and blue. Brightness, color temperature, and Blue Light Removal do not change that level while Film Mode is on. Turning it off applies the current brightness and color again. Quitting restores the system display color, and the next launch turns Film Mode back on if it was still enabled. If the app is force-quit with Film Mode on, the next launch leaves Film Mode off and restores the display color.
+    """
+}
+
+/// Clickable info control for a Brightness-tab mode. A popover fits this
+/// settings window better than a tooltip, because the explanations are more than a few words.
+private struct BrightnessModeInfoButton: View {
+    let title: String
+    let explanation: String
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) information")
+        .popover(isPresented: $isPresented, arrowEdge: .leading) {
+            Text(explanation)
+                .font(.callout)
+                .multilineTextAlignment(.leading)
+                .frame(width: 300, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+        }
     }
 }
 
