@@ -123,12 +123,7 @@ struct BrightnessSettingsTab: View {
 
     private var presetChipsRow: some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Presets")
-                Text("The same ones shown in the menu bar.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Menu Bar Presets")
             Spacer(minLength: 12)
             if feature.menuBarFavoritePresets.isEmpty {
                 Text("Turn on “Show in menu bar” for a preset.")

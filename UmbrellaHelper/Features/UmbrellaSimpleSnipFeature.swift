@@ -107,17 +107,17 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         screenshotSelectionColor = Self.storedColor(
             defaults,
             key: "umbrella.snip.color.screenshot",
-            fallback: .systemCyan
+            fallback: Self.defaultScreenshotSelectionColor
         )
         recordingSelectionColor = Self.storedColor(
             defaults,
             key: "umbrella.snip.color.record",
-            fallback: .systemRed
+            fallback: Self.defaultRecordingSelectionColor
         )
         textCopySelectionColor = Self.storedColor(
             defaults,
             key: "umbrella.snip.color.text",
-            fallback: .systemGreen
+            fallback: Self.defaultTextCopySelectionColor
         )
         lastSavedPath = defaults.string(forKey: "umbrella.snip.lastSavedPath")
         screenCaptureState = CGPreflightScreenCaptureAccess() ? .allowed : .notRequested
@@ -163,6 +163,12 @@ final class UmbrellaSimpleSnipFeature: ObservableObject {
         Self.store(recordingSelectionColor, defaults: defaults, key: "umbrella.snip.color.record")
         Self.store(textCopySelectionColor, defaults: defaults, key: "umbrella.snip.color.text")
     }
+
+    /// Fresh-install selection colors, sampled from the settings swatches.
+    /// A color already saved under the UserDefaults key is left unchanged.
+    private static let defaultScreenshotSelectionColor = NSColor(srgbRed: 61 / 255, green: 211 / 255, blue: 254 / 255, alpha: 1)
+    private static let defaultRecordingSelectionColor = NSColor(srgbRed: 254 / 255, green: 66 / 255, blue: 70 / 255, alpha: 1)
+    private static let defaultTextCopySelectionColor = NSColor(srgbRed: 46 / 255, green: 254 / 255, blue: 24 / 255, alpha: 1)
 
     private static func storedColor(_ defaults: UserDefaults, key: String, fallback: NSColor) -> NSColor {
         guard let data = defaults.data(forKey: key),
