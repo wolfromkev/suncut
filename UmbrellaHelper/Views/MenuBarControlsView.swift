@@ -10,6 +10,8 @@ struct MenuBarControlsView: View {
     @ObservedObject var brightnessFeature: UmbrellaBrightnessFeature
     @ObservedObject var snipFeature: UmbrellaSimpleSnipFeature
     var onOpenSettings: () -> Void
+    var onRestart: () -> Void
+    var onQuit: () -> Void
     var onRunCapture: (@escaping () -> Void) -> Void
 
     @State private var focusedControl: MenuBarControlTarget = .screenBrightness
@@ -28,19 +30,28 @@ struct MenuBarControlsView: View {
 
             Divider()
 
-            HStack(alignment: .firstTextBaseline) {
-                Button(action: onOpenSettings) {
-                    Label("Settings…", systemImage: "gearshape")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Button(action: onOpenSettings) {
+                        Label("Settings…", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
+                    .controlSize(.small)
+
+                    Spacer()
+
+                    Text("← → or side-scroll")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-                .controlSize(.small)
 
-                Spacer()
-
-                Text("← → or side-scroll")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                CaptureMenuRow(title: "Restart Suncut", shortcut: "") {
+                    onRestart()
+                }
+                CaptureMenuRow(title: "Quit Suncut", shortcut: "") {
+                    onQuit()
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -211,8 +222,10 @@ struct MenuBarControlsView: View {
                 HStack(spacing: 8) {
                     Text(title)
                     Spacer(minLength: 8)
-                    Text(shortcut)
-                        .foregroundStyle(shortcutColor)
+                    if !shortcut.isEmpty {
+                        Text(shortcut)
+                            .foregroundStyle(shortcutColor)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(titleColor)
@@ -231,7 +244,7 @@ struct MenuBarControlsView: View {
                 }
             }
             .buttonStyle(.plain)
-            .help("\(title) — \(shortcut)")
+            .help(shortcut.isEmpty ? title : "\(title) — \(shortcut)")
         }
 
         private var titleColor: Color {
