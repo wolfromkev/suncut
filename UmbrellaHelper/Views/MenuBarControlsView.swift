@@ -198,7 +198,7 @@ struct MenuBarControlsView: View {
         @State private var isHovered = false
 
         var body: some View {
-            Button(action: action) label: {
+            Button(action: action) {
                 HStack(spacing: 8) {
                     if let systemImage {
                         Image(systemName: systemImage)
