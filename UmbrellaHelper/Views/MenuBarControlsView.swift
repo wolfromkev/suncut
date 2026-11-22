@@ -31,21 +31,9 @@ struct MenuBarControlsView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Button(action: onOpenSettings) {
-                        Label("Settings…", systemImage: "gearshape")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                    .controlSize(.small)
-
-                    Spacer()
-
-                    Text("← → or side-scroll")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                CaptureMenuRow(title: "Settings…", shortcut: "", systemImage: "gearshape") {
+                    onOpenSettings()
                 }
-
                 CaptureMenuRow(title: "Restart Suncut", shortcut: "") {
                     onRestart()
                 }
@@ -107,12 +95,9 @@ struct MenuBarControlsView: View {
                 if !brightnessFeature.menuBarFavoritePresets.isEmpty {
                     HStack(spacing: 6) {
                         ForEach(brightnessFeature.menuBarFavoritePresets) { preset in
-                            Button(preset.name) {
+                            MenuBarPresetButton(title: preset.name, helpText: presetHelp(preset)) {
                                 brightnessFeature.applyPreset(id: preset.id)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .help(presetHelp(preset))
                         }
                     }
                 }
@@ -158,18 +143,11 @@ struct MenuBarControlsView: View {
                     }
                 )
 
-                Button("Restore display color") {
-                    brightnessFeature.restoreDisplayColor()
-                }
-                .buttonStyle(.plain)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .help("Reset system display color, then re-apply Umbrella brightness settings.")
             }
 
             Divider()
 
-            sectionHeader("SimpleSnip", systemImage: "record.circle") {
+            sectionHeader("Snipping Tool", systemImage: "record.circle") {
                 CaptureMenuRow(title: "Snip area", shortcut: AppSettings.shared.snipAreaHotKey.displayName) {
                     onRunCapture(snipFeature.takeAreaSnip)
                 }
@@ -212,14 +190,19 @@ struct MenuBarControlsView: View {
     private struct CaptureMenuRow: View {
         let title: String
         let shortcut: String
+        var systemImage: String? = nil
+        var helpText: String? = nil
         var emphasized: Bool = false
         let action: () -> Void
 
         @State private var isHovered = false
 
         var body: some View {
-            Button(action: action) {
+            Button(action: action) label: {
                 HStack(spacing: 8) {
+                    if let systemImage {
+                        Image(systemName: systemImage)
+                    }
                     Text(title)
                     Spacer(minLength: 8)
                     if !shortcut.isEmpty {
@@ -244,7 +227,7 @@ struct MenuBarControlsView: View {
                 }
             }
             .buttonStyle(.plain)
-            .help(shortcut.isEmpty ? title : "\(title) — \(shortcut)")
+            .help(helpText ?? (shortcut.isEmpty ? title : "\(title) — \(shortcut)"))
         }
 
         private var titleColor: Color {
@@ -256,6 +239,53 @@ struct MenuBarControlsView: View {
             if isHovered { return Color(nsColor: .selectedMenuItemTextColor).opacity(0.85) }
             return emphasized ? Color.red.opacity(0.85) : .secondary
         }
+    }
+
+    /// Menu-bar preset chip. Applying a preset republishes state and drops the system
+    /// pressed highlight, so the click keeps the same row highlight up briefly.
+    private struct MenuBarPresetButton: View {
+        let title: String
+        let helpText: String
+        let action: () -> Void
+
+        @State private var isHovered = false
+        @State private var isFlashing = false
+
+        var body: some View {
+            Button {
+                withAnimation(.easeOut(duration: 0.08)) {
+                    isFlashing = true
+                }
+                action()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        isFlashing = false
+                    }
+                }
+            } label: {
+                Text(title)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(showsHighlight ? Color(nsColor: .selectedMenuItemTextColor) : Color.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(showsHighlight ? Color(nsColor: .selectedContentBackgroundColor) : Color.primary.opacity(0.06))
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.08)) {
+                    isHovered = hovering
+                }
+            }
+            .help(helpText)
+        }
+
+        private var showsHighlight: Bool { isHovered || isFlashing }
     }
 
     private func presetHelp(_ preset: UmbrellaSunPreset) -> String {

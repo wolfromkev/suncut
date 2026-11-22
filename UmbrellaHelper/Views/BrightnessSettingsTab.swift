@@ -676,23 +676,14 @@ struct BrightnessSettingsTab: View {
         )
         let brightness = nightPreset.brightness + (dayPreset.brightness - nightPreset.brightness) * progress
         let colorTemp = nightPreset.colorTemp + Int((Float(dayPreset.colorTemp - nightPreset.colorTemp) * progress).rounded())
-        let colorLabel = (dayPreset.customTint != nil || nightPreset.customTint != nil) ? "Custom" : "\(colorTemp)K"
-        return (brightness, colorLabel)
+        return (brightness, "\(colorTemp)K")
     }
 
     private func presetMatchesDisplay(_ preset: UmbrellaSunPreset) -> Bool {
         let brightnessMatches = Int((feature.brightness * 100).rounded()) == Int((preset.brightness * 100).rounded())
         guard feature.isDarkroom == preset.isDarkroom else { return false }
-        if let tint = preset.customTint {
-            guard let applied = feature.appliedTint else { return false }
-            return brightnessMatches && tintMatches(applied, tint)
-        }
         let temperatureMatches = nearestHundred(feature.colorTemp) == nearestHundred(preset.colorTemp)
-        return brightnessMatches && temperatureMatches && feature.appliedTint == nil
-    }
-
-    private func tintMatches(_ lhs: (Float, Float, Float), _ rhs: (Float, Float, Float)) -> Bool {
-        abs(lhs.0 - rhs.0) < 0.02 && abs(lhs.1 - rhs.1) < 0.02 && abs(lhs.2 - rhs.2) < 0.02
+        return brightnessMatches && temperatureMatches
     }
 
     private func nearestHundred(_ kelvin: Int) -> Int {
@@ -1243,7 +1234,6 @@ private struct PresetLibraryRow: View {
                     set: { newValue in
                         update(preset) { updated in
                             updated.colorTemp = Int(newValue.rounded())
-                            updated.clearCustomTint()
                         }
                     }
                 ),
@@ -1254,22 +1244,23 @@ private struct PresetLibraryRow: View {
 
             editorLine {
                 HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Color")
-                            .foregroundStyle(BrightnessChrome.text)
-                        if preset.customTint != nil {
-                            Text("Replaces the temperature until you move that slider.")
-                                .font(.system(size: 11))
-                                .foregroundStyle(BrightnessChrome.secondaryText)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
+                    Text("Color")
+                        .foregroundStyle(BrightnessChrome.text)
                     Spacer(minLength: 12)
+                    if preset.customTint != nil {
+                        Button("Clear") {
+                            updateSwatch(preset) { $0.clearCustomTint() }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(BrightnessChrome.secondaryText)
+                        .help("Use the color from the color temperature")
+                        .accessibilityLabel("Clear color for \(preset.name)")
+                    }
                     ColorPicker("Color", selection: colorBinding(for: preset), supportsOpacity: false)
                         .labelsHidden()
-                        .disabled(preset.isDarkroom)
-                        .opacity(preset.isDarkroom ? 0.4 : 1)
                         .accessibilityLabel("Color for \(preset.name)")
+                        .help("Colors the dot next to the preset name. Does not change the screen.")
                 }
             }
 
@@ -1345,21 +1336,34 @@ private struct PresetLibraryRow: View {
 
     private func colorBinding(for preset: UmbrellaSunPreset) -> Binding<Color> {
         Binding(
-            get: { presetDisplayColor(preset) },
+            get: { presetWellColor(preset) },
             set: { newValue in
                 guard let srgb = NSColor(newValue).usingColorSpace(.sRGB) else { return }
-                update(preset) { updated in
-                    updated.setCustomTint(
-                        red: Float(srgb.redComponent),
-                        green: Float(srgb.greenComponent),
-                        blue: Float(srgb.blueComponent)
-                    )
+                let red = Float(srgb.redComponent)
+                let green = Float(srgb.greenComponent)
+                let blue = Float(srgb.blueComponent)
+                if let existing = preset.customTint,
+                   abs(existing.0 - red) < 0.001,
+                   abs(existing.1 - green) < 0.001,
+                   abs(existing.2 - blue) < 0.001 {
+                    return
+                }
+                if preset.customTint == nil {
+                    let kelvin = BrightnessSwatch.components(kelvin: preset.colorTemp)
+                    if abs(kelvin.0 - Double(red)) < 0.02,
+                       abs(kelvin.1 - Double(green)) < 0.02,
+                       abs(kelvin.2 - Double(blue)) < 0.02 {
+                        return
+                    }
+                }
+                updateSwatch(preset) { updated in
+                    updated.setCustomTint(red: red, green: green, blue: blue)
                 }
             }
         )
     }
 
-    private func presetDisplayColor(_ preset: UmbrellaSunPreset) -> Color {
+    private func presetWellColor(_ preset: UmbrellaSunPreset) -> Color {
         if let tint = preset.customTint {
             return Color(red: Double(tint.0), green: Double(tint.1), blue: Double(tint.2))
         }
@@ -1419,6 +1423,13 @@ private struct PresetLibraryRow: View {
         if updated.id == feature.dayPresetID || updated.id == feature.nightPresetID {
             feature.refreshAutoStateIfNeeded()
         }
+    }
+
+    /// Writes the dot color only. Does not reapply display gamma.
+    private func updateSwatch(_ preset: UmbrellaSunPreset, _ mutate: (inout UmbrellaSunPreset) -> Void) {
+        var updated = preset
+        mutate(&updated)
+        feature.updatePreset(updated)
     }
 }
 
@@ -1810,33 +1821,7 @@ private struct BrightnessScheduleGraph: View {
     }
 
     private func curveColor(at minutes: Int) -> Color {
-        if dayPreset.customTint == nil && nightPreset.customTint == nil {
-            return BrightnessSwatch.kelvinColor(curveTemperature(at: minutes))
-        }
-        let progress = Double(
-            UmbrellaSolarSchedule.daylightProgress(
-                at: minutes,
-                sunrise: sunriseMinutes,
-                sunset: sunsetMinutes,
-                transition: transitionMinutes
-            )
-        )
-        let night = curveEndpoint(nightPreset)
-        let day = curveEndpoint(dayPreset)
-        let t = min(1, max(0, progress))
-        return Color(
-            red: night.0 + (day.0 - night.0) * t,
-            green: night.1 + (day.1 - night.1) * t,
-            blue: night.2 + (day.2 - night.2) * t
-        )
-    }
-
-    private func curveEndpoint(_ preset: UmbrellaSunPreset) -> (Double, Double, Double) {
-        if preset.isDarkroom { return (0.8, 0, 0) }
-        if let tint = preset.customTint {
-            return (Double(tint.0), Double(tint.1), Double(tint.2))
-        }
-        return BrightnessSwatch.components(kelvin: preset.colorTemp)
+        BrightnessSwatch.kelvinColor(curveTemperature(at: minutes))
     }
 
     private func dayPillOffset(width: CGFloat) -> CGSize {
@@ -1966,7 +1951,7 @@ private enum BrightnessSwatch {
     }
 
     static func swatch(for preset: UmbrellaSunPreset) -> Color {
-        if let tint = preset.customTint, !preset.isDarkroom {
+        if let tint = preset.customTint {
             return scaled(
                 red: Double(tint.0),
                 green: Double(tint.1),
