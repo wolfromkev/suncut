@@ -1,4 +1,7 @@
 import AppKit
+#if !APP_STORE
+import Combine
+#endif
 import Foundation
 
 /// Looks up the latest GitHub release and replaces this app with the disk image.
@@ -9,30 +12,77 @@ enum AppUpdateChecker {
     }
 
     #if !APP_STORE
+    /// Observed by Settings. True only after a lookup finds a newer release that includes Suncut.dmg.
+    final class Availability: ObservableObject {
+        static let shared = Availability()
+        @Published private(set) var isNewerReleaseAvailable = false
+        private init() {}
+
+        fileprivate func setNewerReleaseAvailable(_ available: Bool) {
+            isNewerReleaseAvailable = available
+        }
+    }
+
     private static let owner = "wolfromkev"
     private static let repo = "suncut"
     private static let assetName = "Suncut.dmg"
     private static var isBusy = false
+    private static var availabilityGeneration = 0
 
     static func prompt() {
         guard !isBusy else { return }
         isBusy = true
+        let generation = bumpAvailabilityGeneration()
         Task {
             defer { isBusy = false }
+            let release: Release?
             do {
-                guard let release = try await fetchNewerRelease() else {
-                    inform(
-                        "You’re up to date",
-                        "Suncut \(currentVersion) is the latest release."
-                    )
-                    return
-                }
-                guard confirmInstall(of: release.version) else { return }
+                release = try await fetchNewerRelease()
+            } catch {
+                recordAvailability(false, generation: generation)
+                inform("Couldn’t update", error.localizedDescription)
+                return
+            }
+            guard let release else {
+                recordAvailability(false, generation: generation)
+                inform(
+                    "You’re up to date",
+                    "Suncut \(currentVersion) is the latest release."
+                )
+                return
+            }
+            recordAvailability(true, generation: generation)
+            guard confirmInstall(of: release.version) else { return }
+            do {
                 try await downloadAndInstall(release)
             } catch {
                 inform("Couldn’t update", error.localizedDescription)
             }
         }
+    }
+
+    /// Asks GitHub whether a newer Suncut.dmg exists. Hides the mark when this copy is current or the lookup fails.
+    static func refreshAvailability() {
+        let generation = bumpAvailabilityGeneration()
+        Task {
+            let available: Bool
+            do {
+                available = try await fetchNewerRelease() != nil
+            } catch {
+                available = false
+            }
+            recordAvailability(available, generation: generation)
+        }
+    }
+
+    private static func bumpAvailabilityGeneration() -> Int {
+        availabilityGeneration += 1
+        return availabilityGeneration
+    }
+
+    private static func recordAvailability(_ available: Bool, generation: Int) {
+        guard generation == availabilityGeneration else { return }
+        Availability.shared.setNewerReleaseAvailable(available)
     }
 
     private static func fetchNewerRelease() async throws -> Release? {

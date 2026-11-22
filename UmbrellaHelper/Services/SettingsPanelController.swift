@@ -92,6 +92,9 @@ final class SettingsPanelController: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
         (window as? SettingsCardWindow)?.applyCardChrome()
         NSApp.activate(ignoringOtherApps: true)
+        #if !APP_STORE
+        AppUpdateChecker.refreshAvailability()
+        #endif
     }
 
     func closePanel() {
