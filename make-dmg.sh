@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Build a Release app and pack it into a DMG for another Mac.
 # The other Mac does not need Xcode. First launch needs one Gatekeeper approval.
+# Signs with the same stable keychain identity as install.sh.
+# Refuses to ad-hoc sign: that signature changes every build, so macOS re-asks
+# for Screen Recording, Microphone, and Accessibility after each update.
 # Usage: ./make-dmg.sh
 set -euo pipefail
 
@@ -11,6 +14,7 @@ APP_NAME="Suncut"
 BUILD_DIR="$ROOT/build"
 DERIVED="$BUILD_DIR/DerivedData"
 ENTITLEMENTS="$ROOT/UmbrellaHelper/UmbrellaHelper.entitlements"
+IDENTITY_FILE="$ROOT/.signing-identity"
 STAGING=""
 
 cleanup() {
@@ -19,6 +23,47 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+# Keep this in sync with install.sh. Prefer UMBRELLA_SIGN_IDENTITY, then the
+# identity saved in .signing-identity, then Apple Development.
+resolve_sign_identity() {
+  local identities saved name
+  identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+
+  identity_is_valid() {
+    printf '%s\n' "$identities" | grep -F -q "\"$1\""
+  }
+
+  if [[ -n "${UMBRELLA_SIGN_IDENTITY:-}" ]]; then
+    if identity_is_valid "$UMBRELLA_SIGN_IDENTITY"; then
+      printf '%s\n' "$UMBRELLA_SIGN_IDENTITY"
+      return 0
+    fi
+    echo "Warning: UMBRELLA_SIGN_IDENTITY is not a valid codesigning identity: ${UMBRELLA_SIGN_IDENTITY}" >&2
+    return 1
+  fi
+
+  if [[ -f "$IDENTITY_FILE" ]]; then
+    saved="$(tr -d '\n' < "$IDENTITY_FILE")"
+    if [[ -n "$saved" ]] && identity_is_valid "$saved"; then
+      printf '%s\n' "$saved"
+      return 0
+    fi
+  fi
+
+  name="$(printf '%s\n' "$identities" | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -n 1)"
+  if [[ -z "$name" ]]; then
+    name="$(printf '%s\n' "$identities" | sed -n 's/.*"\(Mac Developer:[^"]*\)".*/\1/p' | head -n 1)"
+  fi
+  if [[ -z "$name" ]]; then
+    name="$(printf '%s\n' "$identities" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)"
+  fi
+  if [[ -n "$name" ]]; then
+    printf '%s\n' "$name"
+    return 0
+  fi
+  return 1
+}
 
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   if [[ -d /Applications/Xcode-beta.app/Contents/Developer ]]; then
@@ -53,13 +98,31 @@ if [[ ! -d "$BUILT_APP" ]]; then
   exit 1
 fi
 
-echo "Signing for another Mac (ad-hoc). An Apple Development certificate is not trusted off this Mac."
+if ! SIGN_IDENTITY="$(resolve_sign_identity)"; then
+  echo "No stable codesigning identity found. Refusing to ad-hoc sign, because that signature changes every build and macOS asks for Screen Recording, Microphone, and Accessibility again." >&2
+  echo "Install an Apple Development certificate in Xcode, or set UMBRELLA_SIGN_IDENTITY." >&2
+  exit 1
+fi
+
+printf '%s\n' "$SIGN_IDENTITY" > "$IDENTITY_FILE"
+echo "Signing with stable identity: $SIGN_IDENTITY"
 codesign --force --deep --options runtime \
   --entitlements "$ENTITLEMENTS" \
   --identifier "com.kevinwolfrom.umbrella" \
-  --sign - \
+  --sign "$SIGN_IDENTITY" \
   "$BUILT_APP"
 codesign --verify --deep --strict "$BUILT_APP"
+
+SIGN_DETAILS="$(codesign -dv --verbose=4 "$BUILT_APP" 2>&1 || true)"
+if printf '%s\n' "$SIGN_DETAILS" | grep -q '^Signature=adhoc$'; then
+  echo "Refusing to pack an ad-hoc signed app." >&2
+  exit 1
+fi
+if ! printf '%s\n' "$SIGN_DETAILS" | grep -F -q "Authority=${SIGN_IDENTITY}"; then
+  echo "Signed authority does not match the stable identity. Refusing to pack the disk image." >&2
+  exit 1
+fi
+printf '%s\n' "$SIGN_DETAILS" | awk -F= '/^TeamIdentifier=|^Signature=|^Authority=/{ print }'
 
 EXECUTABLE="$BUILT_APP/Contents/MacOS/${APP_NAME}"
 echo "Architectures: $(lipo -archs "$EXECUTABLE")"
@@ -111,5 +174,6 @@ cp -f "$DMG" "$STABLE"
 echo ""
 echo "DMG ready: $DMG"
 echo "GitHub asset: $STABLE"
+echo "Signed with stable identity: $SIGN_IDENTITY"
 echo "Copy that file to the other Mac, open it, and drag the app to Applications."
-echo "The first open needs the steps in Read Me.txt. Screen Recording must be granted again on that Mac."
+echo "The first open needs the steps in Read Me.txt."
