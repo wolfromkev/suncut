@@ -24,14 +24,18 @@ struct MenuBarControlsView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 menuSections
-                    .padding(14)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
+                    .background(MenuBarScrollTopInsetReset())
             }
+            .contentMargins(.top, 0, for: .scrollContent)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
-                CaptureMenuRow(title: "Settings…", shortcut: "", systemImage: "gearshape") {
+                CaptureMenuRow(title: "Settings", shortcut: "") {
                     onOpenSettings()
                 }
                 CaptureMenuRow(title: "Restart Suncut", shortcut: "") {
@@ -55,7 +59,7 @@ struct MenuBarControlsView: View {
 
     private var menuSections: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader("Screen", systemImage: "sun.max.fill") {
+            sectionHeader("Brightness", systemImage: "sun.max.fill") {
                 Toggle(
                     "Automatic",
                     isOn: Binding(
@@ -147,7 +151,7 @@ struct MenuBarControlsView: View {
 
             Divider()
 
-            sectionHeader("Snipping Tool", systemImage: "record.circle") {
+            sectionHeader("Snipping Tool", systemImage: "scissors") {
                 CaptureMenuRow(title: "Snip area", shortcut: AppSettings.shared.snipAreaHotKey.displayName) {
                     onRunCapture(snipFeature.takeAreaSnip)
                 }
@@ -439,6 +443,52 @@ struct MenuBarControlsView: View {
             brightnessFeature.setColorTemp(
                 brightnessFeature.colorTemp + (total * UmbrellaBrightnessFeature.colorTempStep)
             )
+        }
+    }
+}
+
+/// The menu sits in a titled panel. AppKit's scroll view then insets its content
+/// by the title bar, which leaves a blank band above Brightness. Drop that inset.
+private struct MenuBarScrollTopInsetReset: NSViewRepresentable {
+    func makeNSView(context: Context) -> MenuBarScrollTopInsetResetView {
+        MenuBarScrollTopInsetResetView()
+    }
+
+    func updateNSView(_ nsView: MenuBarScrollTopInsetResetView, context: Context) {
+        nsView.clearTopContentInset()
+    }
+}
+
+private final class MenuBarScrollTopInsetResetView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        clearTopContentInset()
+    }
+
+    override func layout() {
+        super.layout()
+        clearTopContentInset()
+    }
+
+    func clearTopContentInset() {
+        var ancestor = superview
+        while let current = ancestor {
+            if let scroll = current as? NSScrollView {
+                if scroll.automaticallyAdjustsContentInsets {
+                    scroll.automaticallyAdjustsContentInsets = false
+                }
+                if scroll.contentInsets.top != 0 {
+                    var insets = scroll.contentInsets
+                    insets.top = 0
+                    scroll.contentInsets = insets
+                }
+                return
+            }
+            ancestor = current.superview
         }
     }
 }

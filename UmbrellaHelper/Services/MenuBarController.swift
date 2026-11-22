@@ -266,6 +266,8 @@ final class MenuBarController: NSObject, NSWindowDelegate {
 
         let hosting = NSHostingController(rootView: makeControlsView(appModel: appModel))
         hosting.sizingOptions = []
+        // The hidden title bar still reserves a safe area, which shows up as empty space above the menu.
+        hosting.safeAreaRegions = []
 
         let panel = MenuBarPanel(contentViewController: hosting)
         panel.contentMinSize = Self.minimumPanelSize
