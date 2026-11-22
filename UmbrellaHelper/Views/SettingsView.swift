@@ -22,6 +22,9 @@ private enum KeybindingTarget: Hashable {
 
 struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
+    #if !APP_STORE
+    @ObservedObject private var updateAvailability = AppUpdateChecker.Availability.shared
+    #endif
     @State private var selectedTab: UmbrellaSettingsTab = .keybindings
     @State private var launchAtLogin = AppSettings.shared.launchAtLogin
     @State private var soundEffectsEnabled = AppSettings.shared.soundEffectsEnabled
@@ -68,6 +71,9 @@ struct SettingsView: View {
             launchAtLogin = LaunchAtLoginManager.isEnabled
             refreshPresetBindings()
             detectShortcutConflict()
+            #if !APP_STORE
+            AppUpdateChecker.refreshAvailability()
+            #endif
         }
     }
 
@@ -140,8 +146,13 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                         #if !APP_STORE
                         Spacer()
-                        Button("Check for Updates…") {
-                            AppUpdateChecker.prompt()
+                        HStack(spacing: 6) {
+                            if updateAvailability.isNewerReleaseAvailable {
+                                updateAvailableMark
+                            }
+                            Button("Check for Updates…") {
+                                AppUpdateChecker.prompt()
+                            }
                         }
                         #endif
                     }
@@ -345,6 +356,17 @@ struct SettingsView: View {
 
         detectShortcutConflict()
     }
+
+    #if !APP_STORE
+    private var updateAvailableMark: some View {
+        Circle()
+            .fill(Color.orange)
+            .frame(width: 9, height: 9)
+            .overlay(Circle().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1))
+            .accessibilityLabel("Update available")
+            .help("A newer version of Suncut is available")
+    }
+    #endif
 
     @ViewBuilder
     private func sectionCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
