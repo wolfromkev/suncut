@@ -244,6 +244,14 @@ final class MenuBarController: NSObject, NSWindowDelegate {
                 self?.hidePopover()
                 self?.openSettings()
             },
+            onRestart: { [weak self] in
+                self?.hidePopoverImmediately()
+                self?.restartApp()
+            },
+            onQuit: { [weak self] in
+                self?.hidePopoverImmediately()
+                self?.quitApp()
+            },
             onRunCapture: { [weak self] action in
                 self?.hidePopoverImmediately()
                 action()
