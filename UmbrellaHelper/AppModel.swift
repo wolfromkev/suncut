@@ -16,7 +16,6 @@ final class AppModel: ObservableObject {
     private let brightnessUpHotKey = GlobalHotKey(registrationID: 10)
     private let warmthUpHotKey = GlobalHotKey(registrationID: 11)
     private let warmthDownHotKey = GlobalHotKey(registrationID: 12)
-    private let filmModeHotKey = GlobalHotKey(registrationID: 14)
     private var sunPresetHotKeys: [String: GlobalHotKey] = [:]
     private var nextSunPresetHotKeyID: UInt32 = 200
     let brightnessFeature = UmbrellaBrightnessFeature()
@@ -54,7 +53,6 @@ final class AppModel: ObservableObject {
         brightnessUpHotKey.unregister()
         warmthUpHotKey.unregister()
         warmthDownHotKey.unregister()
-        filmModeHotKey.unregister()
         sunPresetHotKeys.values.forEach { $0.unregister() }
         sunPresetHotKeys.removeAll()
         settingsPanelController.closePanel()
@@ -90,13 +88,6 @@ final class AppModel: ObservableObject {
         }
         warmthDownHotKey.register(hotKeyID: settings.warmthDownHotKey) { [weak self] in
             Task { @MainActor in self?.brightnessFeature.adjustColorTemp(by: UmbrellaBrightnessFeature.colorTempStep) }
-        }
-        if let filmModeBinding = settings.filmModeHotKey {
-            filmModeHotKey.register(hotKeyID: filmModeBinding) { [weak self] in
-                Task { @MainActor in self?.brightnessFeature.toggleFilmMode() }
-            }
-        } else {
-            filmModeHotKey.unregister()
         }
         reloadSunPresetHotKeys()
     }

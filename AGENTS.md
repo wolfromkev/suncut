@@ -7,7 +7,7 @@
 
 ## Verify
 - Build in Xcode (scheme **UmbrellaHelper**), or `./build-and-install.sh`
-- Manual smoke: area snip, menu-bar brightness, Film Mode toggle + quit restore
+- Manual smoke: area snip, menu-bar brightness, automatic schedule pause and resume
 
 ## Layout
 - `UmbrellaHelper/AppModel.swift` — app shell, hotkeys, feature ownership
