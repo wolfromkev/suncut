@@ -152,7 +152,7 @@ struct BrightnessSettingsTab: View {
         } label: {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(BrightnessSwatch.swatch(brightness: preset.brightness, kelvin: preset.colorTemp))
+                    .fill(BrightnessSwatch.swatch(for: preset))
                     .frame(width: 12, height: 12)
                     .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
                 Text(preset.name)
@@ -305,7 +305,7 @@ struct BrightnessSettingsTab: View {
                     .foregroundStyle(.orange)
                     .monospacedDigit()
             } else if feature.isAutoMode, let sample = scheduledSample(at: minutes) {
-                Text("Now \(Int((sample.brightness * 100).rounded()))% · \(sample.colorTemp)K")
+                Text("Now \(Int((sample.brightness * 100).rounded()))% · \(sample.colorLabel)")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
@@ -666,7 +666,7 @@ struct BrightnessSettingsTab: View {
         }
     }
 
-    private func scheduledSample(at minutes: Int) -> (brightness: Float, colorTemp: Int)? {
+    private func scheduledSample(at minutes: Int) -> (brightness: Float, colorLabel: String)? {
         guard let dayPreset, let nightPreset else { return nil }
         let progress = UmbrellaSolarSchedule.daylightProgress(
             at: minutes,
@@ -676,15 +676,23 @@ struct BrightnessSettingsTab: View {
         )
         let brightness = nightPreset.brightness + (dayPreset.brightness - nightPreset.brightness) * progress
         let colorTemp = nightPreset.colorTemp + Int((Float(dayPreset.colorTemp - nightPreset.colorTemp) * progress).rounded())
-        return (brightness, colorTemp)
+        let colorLabel = (dayPreset.customTint != nil || nightPreset.customTint != nil) ? "Custom" : "\(colorTemp)K"
+        return (brightness, colorLabel)
     }
 
     private func presetMatchesDisplay(_ preset: UmbrellaSunPreset) -> Bool {
         let brightnessMatches = Int((feature.brightness * 100).rounded()) == Int((preset.brightness * 100).rounded())
+        guard feature.isDarkroom == preset.isDarkroom else { return false }
+        if let tint = preset.customTint {
+            guard let applied = feature.appliedTint else { return false }
+            return brightnessMatches && tintMatches(applied, tint)
+        }
         let temperatureMatches = nearestHundred(feature.colorTemp) == nearestHundred(preset.colorTemp)
-        return brightnessMatches
-            && temperatureMatches
-            && feature.isDarkroom == preset.isDarkroom
+        return brightnessMatches && temperatureMatches && feature.appliedTint == nil
+    }
+
+    private func tintMatches(_ lhs: (Float, Float, Float), _ rhs: (Float, Float, Float)) -> Bool {
+        abs(lhs.0 - rhs.0) < 0.02 && abs(lhs.1 - rhs.1) < 0.02 && abs(lhs.2 - rhs.2) < 0.02
     }
 
     private func nearestHundred(_ kelvin: Int) -> Int {
@@ -1080,10 +1088,10 @@ private struct PresetLibraryRow: View {
 
     private func row(_ preset: UmbrellaSunPreset) -> some View {
         HStack(spacing: 0) {
-            Button(action: onApply) {
+            Button(action: { handleHeaderTap() }) {
                 HStack(spacing: 10) {
                     Circle()
-                        .fill(BrightnessSwatch.swatch(brightness: preset.brightness, kelvin: preset.colorTemp))
+                        .fill(BrightnessSwatch.swatch(for: preset))
                         .frame(width: 16, height: 16)
                         .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
                     Text(preset.name)
@@ -1102,9 +1110,13 @@ private struct PresetLibraryRow: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel(applyAccessibilityLabel(preset))
+            .accessibilityLabel(isExpanded ? "Collapse \(preset.name)" : applyAccessibilityLabel(preset))
             .accessibilityValue(valueText(preset))
-            .accessibilityHint("Sets display brightness and color to this preset")
+            .accessibilityHint(
+                isExpanded
+                    ? "Closes preset settings without changing the display"
+                    : "Sets display brightness and color to this preset"
+            )
 
             Button(action: onToggle) {
                 Image(systemName: "chevron.right")
@@ -1123,6 +1135,14 @@ private struct PresetLibraryRow: View {
         }
         .frame(minHeight: 42)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func handleHeaderTap() {
+        if isExpanded {
+            onToggle()
+        } else {
+            onApply()
+        }
     }
 
     private func applyAccessibilityLabel(_ preset: UmbrellaSunPreset) -> String {
@@ -1221,13 +1241,37 @@ private struct PresetLibraryRow: View {
                 value: Binding(
                     get: { Double(preset.colorTemp) },
                     set: { newValue in
-                        update(preset) { $0.colorTemp = Int(newValue.rounded()) }
+                        update(preset) { updated in
+                            updated.colorTemp = Int(newValue.rounded())
+                            updated.clearCustomTint()
+                        }
                     }
                 ),
                 isDisabled: preset.isDarkroom,
                 onEditingChanged: { _ in }
             )
             .padding(.vertical, 4)
+
+            editorLine {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Color")
+                            .foregroundStyle(BrightnessChrome.text)
+                        if preset.customTint != nil {
+                            Text("Replaces the temperature until you move that slider.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(BrightnessChrome.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 12)
+                    ColorPicker("Color", selection: colorBinding(for: preset), supportsOpacity: false)
+                        .labelsHidden()
+                        .disabled(preset.isDarkroom)
+                        .opacity(preset.isDarkroom ? 0.4 : 1)
+                        .accessibilityLabel("Color for \(preset.name)")
+                }
+            }
 
             editorLine {
                 SettingsSwitch(
@@ -1269,14 +1313,12 @@ private struct PresetLibraryRow: View {
                 .help(feature.presets.count > 1 ? "Delete this preset" : "At least one preset is required")
                 .accessibilityLabel("Delete \(preset.name)")
                 Spacer(minLength: 8)
-                Button("Use Current Settings") {
-                    update(preset) { updated in
-                        updated.brightness = feature.brightness
-                        updated.colorTemp = feature.colorTemp
-                        updated.isDarkroom = feature.isDarkroom
-                    }
+                Button("Save") {
+                    feature.applyPreset(id: preset.id)
                 }
-                .buttonStyle(MockChromeButtonStyle())
+                .buttonStyle(MockChromeButtonStyle(kind: .primary))
+                .accessibilityLabel("Save \(preset.name)")
+                .accessibilityHint("Applies this preset to the display")
             }
             .padding(.top, 10)
         }
@@ -1298,7 +1340,30 @@ private struct PresetLibraryRow: View {
     }
 
     private func valueText(_ preset: UmbrellaSunPreset) -> String {
-        "\(Int((preset.brightness * 100).rounded()))% · \(preset.colorTemp)K"
+        "\(Int((preset.brightness * 100).rounded()))% · \(preset.colorSummary)"
+    }
+
+    private func colorBinding(for preset: UmbrellaSunPreset) -> Binding<Color> {
+        Binding(
+            get: { presetDisplayColor(preset) },
+            set: { newValue in
+                guard let srgb = NSColor(newValue).usingColorSpace(.sRGB) else { return }
+                update(preset) { updated in
+                    updated.setCustomTint(
+                        red: Float(srgb.redComponent),
+                        green: Float(srgb.greenComponent),
+                        blue: Float(srgb.blueComponent)
+                    )
+                }
+            }
+        )
+    }
+
+    private func presetDisplayColor(_ preset: UmbrellaSunPreset) -> Color {
+        if let tint = preset.customTint {
+            return Color(red: Double(tint.0), green: Double(tint.1), blue: Double(tint.2))
+        }
+        return BrightnessSwatch.kelvinColor(preset.colorTemp)
     }
 
     private func scheduleRole(_ preset: UmbrellaSunPreset) -> String {
@@ -1626,7 +1691,7 @@ private struct BrightnessScheduleGraph: View {
                 x: xOf(nowMinutes, width: width),
                 y: yOf(brightness: curveBrightness(at: nowMinutes))
             )
-            let tint = BrightnessSwatch.kelvinColor(curveTemperature(at: nowMinutes))
+            let tint = curveColor(at: nowMinutes)
             let halo = Path(ellipseIn: CGRect(x: nowPoint.x - 8, y: nowPoint.y - 8, width: 16, height: 16))
             context.fill(halo, with: .color(tint.opacity(0.22)))
             let dot = Path(ellipseIn: CGRect(x: nowPoint.x - 4.5, y: nowPoint.y - 4.5, width: 9, height: 9))
@@ -1738,10 +1803,40 @@ private struct BrightnessScheduleGraph: View {
     private func temperatureStops() -> [Gradient.Stop] {
         stride(from: 0, through: UmbrellaSolarSchedule.minutesPerDay, by: 30).map { minute in
             Gradient.Stop(
-                color: BrightnessSwatch.kelvinColor(curveTemperature(at: minute)),
+                color: curveColor(at: minute),
                 location: Double(minute) / Double(UmbrellaSolarSchedule.minutesPerDay)
             )
         }
+    }
+
+    private func curveColor(at minutes: Int) -> Color {
+        if dayPreset.customTint == nil && nightPreset.customTint == nil {
+            return BrightnessSwatch.kelvinColor(curveTemperature(at: minutes))
+        }
+        let progress = Double(
+            UmbrellaSolarSchedule.daylightProgress(
+                at: minutes,
+                sunrise: sunriseMinutes,
+                sunset: sunsetMinutes,
+                transition: transitionMinutes
+            )
+        )
+        let night = curveEndpoint(nightPreset)
+        let day = curveEndpoint(dayPreset)
+        let t = min(1, max(0, progress))
+        return Color(
+            red: night.0 + (day.0 - night.0) * t,
+            green: night.1 + (day.1 - night.1) * t,
+            blue: night.2 + (day.2 - night.2) * t
+        )
+    }
+
+    private func curveEndpoint(_ preset: UmbrellaSunPreset) -> (Double, Double, Double) {
+        if preset.isDarkroom { return (0.8, 0, 0) }
+        if let tint = preset.customTint {
+            return (Double(tint.0), Double(tint.1), Double(tint.2))
+        }
+        return BrightnessSwatch.components(kelvin: preset.colorTemp)
     }
 
     private func dayPillOffset(width: CGFloat) -> CGSize {
@@ -1856,18 +1951,35 @@ private struct BrightnessScheduleGraph: View {
 
 private enum BrightnessSwatch {
     static func kelvinColor(_ kelvin: Int) -> Color {
+        let (red, green, blue) = components(kelvin: kelvin)
+        return Color(red: red, green: green, blue: blue)
+    }
+
+    static func components(kelvin: Int) -> (Double, Double, Double) {
         let (red, green, blue) = rgb(kelvin)
-        return Color(red: red / 255, green: green / 255, blue: blue / 255)
+        return (red / 255, green / 255, blue / 255)
     }
 
     static func swatch(brightness: Float, kelvin: Int) -> Color {
         let (red, green, blue) = rgb(kelvin)
+        return scaled(red: red / 255, green: green / 255, blue: blue / 255, brightness: brightness)
+    }
+
+    static func swatch(for preset: UmbrellaSunPreset) -> Color {
+        if let tint = preset.customTint, !preset.isDarkroom {
+            return scaled(
+                red: Double(tint.0),
+                green: Double(tint.1),
+                blue: Double(tint.2),
+                brightness: preset.brightness
+            )
+        }
+        return swatch(brightness: preset.brightness, kelvin: preset.colorTemp)
+    }
+
+    private static func scaled(red: Double, green: Double, blue: Double, brightness: Float) -> Color {
         let scale = 0.3 + 0.7 * Double(min(max(brightness, 0), 1))
-        return Color(
-            red: red / 255 * scale,
-            green: green / 255 * scale,
-            blue: blue / 255 * scale
-        )
+        return Color(red: red * scale, green: green * scale, blue: blue * scale)
     }
 
     private static func rgb(_ kelvin: Int) -> (Double, Double, Double) {

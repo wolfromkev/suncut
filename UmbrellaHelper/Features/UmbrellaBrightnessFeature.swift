@@ -13,6 +13,10 @@ struct UmbrellaSunPreset: Codable, Equatable, Identifiable {
     var colorTemp: Int
     var isDarkroom: Bool
     var isFilmMode: Bool
+    /// Picked sRGB. Nil keeps the color-temperature curve.
+    var tintRed: Float?
+    var tintGreen: Float?
+    var tintBlue: Float?
 
     init(
         id: String = UUID().uuidString,
@@ -20,7 +24,10 @@ struct UmbrellaSunPreset: Codable, Equatable, Identifiable {
         brightness: Float,
         colorTemp: Int,
         isDarkroom: Bool = false,
-        isFilmMode: Bool = false
+        isFilmMode: Bool = false,
+        tintRed: Float? = nil,
+        tintGreen: Float? = nil,
+        tintBlue: Float? = nil
     ) {
         self.id = id
         self.name = name
@@ -28,6 +35,33 @@ struct UmbrellaSunPreset: Codable, Equatable, Identifiable {
         self.colorTemp = colorTemp
         self.isDarkroom = isDarkroom
         self.isFilmMode = isFilmMode
+        self.tintRed = tintRed
+        self.tintGreen = tintGreen
+        self.tintBlue = tintBlue
+    }
+
+    var customTint: (Float, Float, Float)? {
+        guard let tintRed, let tintGreen, let tintBlue else { return nil }
+        return (tintRed, tintGreen, tintBlue)
+    }
+
+    var colorSummary: String {
+        if let customTint, !isDarkroom {
+            return Self.hex(customTint)
+        }
+        return "\(colorTemp)K"
+    }
+
+    mutating func setCustomTint(red: Float, green: Float, blue: Float) {
+        tintRed = min(1, max(0, red))
+        tintGreen = min(1, max(0, green))
+        tintBlue = min(1, max(0, blue))
+    }
+
+    mutating func clearCustomTint() {
+        tintRed = nil
+        tintGreen = nil
+        tintBlue = nil
     }
 
     init(from decoder: Decoder) throws {
@@ -38,16 +72,50 @@ struct UmbrellaSunPreset: Codable, Equatable, Identifiable {
         colorTemp = try container.decode(Int.self, forKey: .colorTemp)
         isDarkroom = try container.decodeIfPresent(Bool.self, forKey: .isDarkroom) ?? false
         isFilmMode = try container.decodeIfPresent(Bool.self, forKey: .isFilmMode) ?? false
+        tintRed = try container.decodeIfPresent(Float.self, forKey: .tintRed)
+        tintGreen = try container.decodeIfPresent(Float.self, forKey: .tintGreen)
+        tintBlue = try container.decodeIfPresent(Float.self, forKey: .tintBlue)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(brightness, forKey: .brightness)
+        try container.encode(colorTemp, forKey: .colorTemp)
+        try container.encode(isDarkroom, forKey: .isDarkroom)
+        try container.encode(isFilmMode, forKey: .isFilmMode)
+        try container.encodeIfPresent(tintRed, forKey: .tintRed)
+        try container.encodeIfPresent(tintGreen, forKey: .tintGreen)
+        try container.encodeIfPresent(tintBlue, forKey: .tintBlue)
+    }
+
+    private static func hex(_ tint: (Float, Float, Float)) -> String {
+        func byte(_ value: Float) -> Int {
+            Int((min(1, max(0, value)) * 255).rounded())
+        }
+        return String(format: "#%02X%02X%02X", byte(tint.0), byte(tint.1), byte(tint.2))
     }
 }
 
 
 private enum UmbrellaBlueLightManager {
-    static func apply(colorTemp: Int, brightness: Float, darkroom: Bool) {
+    static func apply(
+        colorTemp: Int,
+        brightness: Float,
+        darkroom: Bool,
+        tint: (Float, Float, Float)? = nil
+    ) {
         let dim = max(UmbrellaBrightnessFeature.minimumBrightness, min(1, brightness))
         let channels: (Float, Float, Float)
         if darkroom {
             channels = (0.8 * dim, 0.0, 0.0)
+        } else if let tint {
+            channels = (
+                min(1, max(0, tint.0)) * dim,
+                min(1, max(0, tint.1)) * dim,
+                min(1, max(0, tint.2)) * dim
+            )
         } else {
             let multipliers = gammaMultipliers(forKelvin: colorTemp)
             channels = (multipliers.0 * dim, multipliers.1 * dim, multipliers.2 * dim)
@@ -90,6 +158,10 @@ private enum UmbrellaBlueLightManager {
             return [CGMainDisplayID()]
         }
         return Array(displays.prefix(Int(actual)))
+    }
+
+    static func multipliers(forKelvin kelvin: Int) -> (Float, Float, Float) {
+        gammaMultipliers(forKelvin: kelvin)
     }
 
     private static func gammaMultipliers(forKelvin kelvin: Int) -> (Float, Float, Float) {
@@ -145,6 +217,10 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     @Published var brightness: Float
     @Published var colorTemp: Int
     @Published var isDarkroom: Bool
+    /// Live display tint. Nil uses `colorTemp`.
+    var tintRed: Float?
+    var tintGreen: Float?
+    var tintBlue: Float?
     @Published var isAutoMode: Bool
     @Published var useLocationSchedule: Bool
     @Published var sunriseMinutes: Int
@@ -176,6 +252,10 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     private var easeFromColorTemp: Int = 6500
     private var easeToColorTemp: Int = 6500
     private var easeToDarkroom = false
+    private var easeAnimatesTint = false
+    private var easeFromTint: (Float, Float, Float) = (1, 1, 1)
+    private var easeToTint: (Float, Float, Float) = (1, 1, 1)
+    private var easeTargetTint: (Float, Float, Float)?
     private var screenChangeObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
     private var colorSyncObservers: [NSObjectProtocol] = []
@@ -196,6 +276,9 @@ final class UmbrellaBrightnessFeature: ObservableObject {
     /// Set while Film Mode gamma is applied; cleared only on clean `stop()`.
     /// If still set at next launch, gamma is restored and Film Mode is turned off.
     private let filmModeDirtyKey = "umbrella.sunscreen.filmModeDirty"
+    private let tintRedKey = "umbrella.sunscreen.tintRed"
+    private let tintGreenKey = "umbrella.sunscreen.tintGreen"
+    private let tintBlueKey = "umbrella.sunscreen.tintBlue"
     /// Coalesce rapid slider gamma writes (~20 Hz).
     private static let applyThrottleInterval: TimeInterval = 0.05
     /// Wait for display reconnect / wake to settle before re-applying gamma.
@@ -211,6 +294,13 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         brightness = Self.clampedBrightness(defaults.object(forKey: "umbrella.sunscreen.brightness") as? Float ?? 1.0)
         colorTemp = defaults.object(forKey: "umbrella.sunscreen.colorTemp") as? Int ?? 6500
         isDarkroom = defaults.object(forKey: "umbrella.sunscreen.darkroom") as? Bool ?? false
+        if defaults.object(forKey: tintRedKey) != nil,
+           defaults.object(forKey: tintGreenKey) != nil,
+           defaults.object(forKey: tintBlueKey) != nil {
+            tintRed = defaults.float(forKey: tintRedKey)
+            tintGreen = defaults.float(forKey: tintGreenKey)
+            tintBlue = defaults.float(forKey: tintBlueKey)
+        }
         isAutoMode = defaults.object(forKey: "umbrella.sunscreen.auto") as? Bool ?? true
         useLocationSchedule = defaults.object(forKey: "umbrella.sunscreen.useLocation") as? Bool ?? false
         sunriseMinutes = defaults.object(forKey: "umbrella.sunscreen.sunrise") as? Int ?? 420
@@ -361,6 +451,7 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         beginSchedulePauseIfNeeded()
         colorTemp = max(1200, min(6500, value))
         isDarkroom = false
+        clearAppliedTint()
         apply(persist: commit, immediate: commit)
     }
 
@@ -487,7 +578,10 @@ final class UmbrellaBrightnessFeature: ObservableObject {
             brightness: brightness,
             colorTemp: colorTemp,
             isDarkroom: isDarkroom,
-            isFilmMode: isFilmModeEnabled
+            isFilmMode: isFilmModeEnabled,
+            tintRed: tintRed,
+            tintGreen: tintGreen,
+            tintBlue: tintBlue
         )
         presets.append(preset)
         if dayPresetID.isEmpty { dayPresetID = preset.id }
@@ -506,7 +600,10 @@ final class UmbrellaBrightnessFeature: ObservableObject {
             brightness: source.brightness,
             colorTemp: source.colorTemp,
             isDarkroom: source.isDarkroom,
-            isFilmMode: source.isFilmMode
+            isFilmMode: source.isFilmMode,
+            tintRed: source.tintRed,
+            tintGreen: source.tintGreen,
+            tintBlue: source.tintBlue
         )
         presets.insert(copy, at: index + 1)
         save()
@@ -574,6 +671,9 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         brightness = Self.clampedBrightness(preset.brightness)
         colorTemp = preset.colorTemp
         isDarkroom = preset.isDarkroom
+        tintRed = preset.tintRed
+        tintGreen = preset.tintGreen
+        tintBlue = preset.tintBlue
         apply(persist: true, immediate: true)
     }
 
@@ -600,6 +700,9 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         brightness = scheduled.brightness
         colorTemp = scheduled.colorTemp
         isDarkroom = scheduled.isDarkroom
+        tintRed = scheduled.tint?.0
+        tintGreen = scheduled.tint?.1
+        tintBlue = scheduled.tint?.2
         apply(persist: true, immediate: true)
     }
 
@@ -607,10 +710,24 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         max(minimumBrightness, min(1, value))
     }
 
+    var appliedTint: (Float, Float, Float)? { currentTint }
+
+    private var currentTint: (Float, Float, Float)? {
+        guard let tintRed, let tintGreen, let tintBlue else { return nil }
+        return (tintRed, tintGreen, tintBlue)
+    }
+
+    private func clearAppliedTint() {
+        tintRed = nil
+        tintGreen = nil
+        tintBlue = nil
+    }
+
     private struct ScheduledAppearance {
         var brightness: Float
         var colorTemp: Int
         var isDarkroom: Bool
+        var tint: (Float, Float, Float)?
     }
 
     private func scheduledAppearance(at date: Date) -> ScheduledAppearance? {
@@ -629,14 +746,36 @@ final class UmbrellaBrightnessFeature: ObservableObject {
             return ScheduledAppearance(
                 brightness: Self.clampedBrightness(nightPreset.brightness),
                 colorTemp: nightPreset.colorTemp,
-                isDarkroom: nightPreset.isDarkroom
+                isDarkroom: nightPreset.isDarkroom,
+                tint: nightPreset.isDarkroom ? nil : nightPreset.customTint
             )
         }
+        guard nightPreset.customTint != nil || dayPreset.customTint != nil else {
+            return ScheduledAppearance(
+                brightness: Self.clampedBrightness(lerp(nightPreset.brightness, dayPreset.brightness, progress)),
+                colorTemp: lerp(nightPreset.colorTemp, dayPreset.colorTemp, progress),
+                isDarkroom: false,
+                tint: nil
+            )
+        }
+        let nightRGB = appearanceRGB(nightPreset)
+        let dayRGB = appearanceRGB(dayPreset)
         return ScheduledAppearance(
             brightness: Self.clampedBrightness(lerp(nightPreset.brightness, dayPreset.brightness, progress)),
             colorTemp: lerp(nightPreset.colorTemp, dayPreset.colorTemp, progress),
-            isDarkroom: false
+            isDarkroom: false,
+            tint: (
+                lerp(nightRGB.0, dayRGB.0, progress),
+                lerp(nightRGB.1, dayRGB.1, progress),
+                lerp(nightRGB.2, dayRGB.2, progress)
+            )
         )
+    }
+
+    private func appearanceRGB(_ preset: UmbrellaSunPreset) -> (Float, Float, Float) {
+        if preset.isDarkroom { return (0.8, 0, 0) }
+        if let tint = preset.customTint { return tint }
+        return UmbrellaBlueLightManager.multipliers(forKelvin: preset.colorTemp)
     }
 
     private func beginSchedulePauseIfNeeded() {
@@ -739,6 +878,12 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         easeFromColorTemp = colorTemp
         easeToColorTemp = target.colorTemp
         easeToDarkroom = target.isDarkroom
+        easeTargetTint = target.tint
+        easeAnimatesTint = currentTint != nil || target.tint != nil
+        if easeAnimatesTint {
+            easeFromTint = currentTint ?? UmbrellaBlueLightManager.multipliers(forKelvin: colorTemp)
+            easeToTint = target.tint ?? UmbrellaBlueLightManager.multipliers(forKelvin: target.colorTemp)
+        }
         easeStartedAt = Date().timeIntervalSinceReferenceDate
         isEasingToSchedule = true
         easeTimer?.invalidate()
@@ -761,10 +906,23 @@ final class UmbrellaBrightnessFeature: ObservableObject {
             easeFromBrightness + (easeToBrightness - easeFromBrightness) * Float(eased)
         )
         colorTemp = easeFromColorTemp + Int((Float(easeToColorTemp - easeFromColorTemp) * Float(eased)).rounded())
+        if easeAnimatesTint {
+            let t = Float(eased)
+            tintRed = easeFromTint.0 + (easeToTint.0 - easeFromTint.0) * t
+            tintGreen = easeFromTint.1 + (easeToTint.1 - easeFromTint.1) * t
+            tintBlue = easeFromTint.2 + (easeToTint.2 - easeFromTint.2) * t
+        }
         if progress >= 1 {
             brightness = easeToBrightness
             colorTemp = easeToColorTemp
             isDarkroom = easeToDarkroom
+            if let easeTargetTint {
+                tintRed = easeTargetTint.0
+                tintGreen = easeTargetTint.1
+                tintBlue = easeTargetTint.2
+            } else {
+                clearAppliedTint()
+            }
             cancelEase()
             apply(persist: true, immediate: true)
             return
@@ -896,7 +1054,8 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         UmbrellaBlueLightManager.apply(
             colorTemp: colorTemp,
             brightness: brightness,
-            darkroom: isDarkroom
+            darkroom: isDarkroom,
+            tint: currentTint
         )
         defaults.set(false, forKey: filmModeDirtyKey)
         if needsPersist {
@@ -927,6 +1086,15 @@ final class UmbrellaBrightnessFeature: ObservableObject {
         defaults.set(brightness, forKey: "umbrella.sunscreen.brightness")
         defaults.set(colorTemp, forKey: "umbrella.sunscreen.colorTemp")
         defaults.set(isDarkroom, forKey: "umbrella.sunscreen.darkroom")
+        if let tintRed, let tintGreen, let tintBlue {
+            defaults.set(tintRed, forKey: tintRedKey)
+            defaults.set(tintGreen, forKey: tintGreenKey)
+            defaults.set(tintBlue, forKey: tintBlueKey)
+        } else {
+            defaults.removeObject(forKey: tintRedKey)
+            defaults.removeObject(forKey: tintGreenKey)
+            defaults.removeObject(forKey: tintBlueKey)
+        }
         defaults.set(isAutoMode, forKey: "umbrella.sunscreen.auto")
         defaults.set(useLocationSchedule, forKey: "umbrella.sunscreen.useLocation")
         defaults.set(sunriseMinutes, forKey: "umbrella.sunscreen.sunrise")
