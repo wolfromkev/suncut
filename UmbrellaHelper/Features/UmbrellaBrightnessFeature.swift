@@ -64,6 +64,18 @@ struct UmbrellaSunPreset: Codable, Equatable, Identifiable {
         tintBlue = nil
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case brightness
+        case colorTemp
+        case isDarkroom
+        case isFilmMode
+        case tintRed
+        case tintGreen
+        case tintBlue
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
