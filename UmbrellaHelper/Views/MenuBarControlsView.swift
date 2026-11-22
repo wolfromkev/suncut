@@ -248,7 +248,7 @@ struct MenuBarControlsView: View {
     private func presetHelp(_ preset: UmbrellaSunPreset) -> String {
         let parts = [
             "\(Int((preset.brightness * 100).rounded()))%",
-            preset.isDarkroom ? "blue light off" : "\(preset.colorTemp)K",
+            preset.isDarkroom ? "blue light off" : preset.colorSummary,
         ]
         return parts.joined(separator: " · ")
     }
