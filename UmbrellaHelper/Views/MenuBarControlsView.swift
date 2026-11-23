@@ -60,7 +60,7 @@ struct MenuBarControlsView: View {
 
     private var menuColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CaptureMenuRow(title: "Settings", shortcut: "") {
+            CaptureMenuRow(title: "Settings", shortcut: "", systemImage: "gearshape") {
                 onOpenSettings()
             }
             .padding(.horizontal, 14)
