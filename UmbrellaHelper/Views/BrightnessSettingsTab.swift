@@ -6,6 +6,10 @@ struct BrightnessSettingsTab: View {
     var onPresetsChanged: () -> Void
 
     @State private var expandedPresetID: String?
+    /// Preset whose row title is showing the brief "Saved" confirmation.
+    @State private var savedFlashPresetID: String?
+    /// Bumps on every Save so an older flash cannot clear a newer one.
+    @State private var savedFlashToken = 0
     @State private var nameFocusID: String?
     @State private var nameSelectAll = false
     @State private var deletePrompt: PresetDeletePrompt?
@@ -57,6 +61,17 @@ struct BrightnessSettingsTab: View {
             } else if openControlID != nil {
                 openControlID = nil
             }
+        }
+        .task(id: savedFlashToken) {
+            let token = savedFlashToken
+            guard savedFlashPresetID != nil else { return }
+            do {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, savedFlashToken == token else { return }
+            savedFlashPresetID = nil
         }
     }
 
@@ -123,12 +138,7 @@ struct BrightnessSettingsTab: View {
 
     private var presetChipsRow: some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Presets")
-                Text("The same ones shown in the menu bar.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Menu Bar Presets")
             Spacer(minLength: 12)
             if feature.menuBarFavoritePresets.isEmpty {
                 Text("Turn on “Show in menu bar” for a preset.")
@@ -332,11 +342,13 @@ struct BrightnessSettingsTab: View {
                     presetID: preset.id,
                     initialName: preset.name,
                     isExpanded: expandedPresetID == preset.id,
+                    showsSavedConfirmation: savedFlashPresetID == preset.id,
                     wantsNameFocus: nameFocusID == preset.id,
                     selectAllName: nameSelectAll && nameFocusID == preset.id,
                     onToggle: { togglePreset(preset.id) },
                     onApply: { feature.applyPreset(id: preset.id) },
                     onDelete: { requestDelete(preset) },
+                    onSave: { saveExpandedPreset(preset.id) },
                     onConsumeNameFocus: {
                         nameFocusID = nil
                         nameSelectAll = false
@@ -726,6 +738,18 @@ struct BrightnessSettingsTab: View {
         expandedPresetID = expandedPresetID == id ? nil : id
     }
 
+    /// Save still applies the open preset. Gamma uses brightness, color temperature,
+    /// and blue light. The dot color stays on the swatch and is not applied to the display.
+    /// The editor then closes, and "Saved" shows beside that preset's name for 1.5 seconds.
+    private func saveExpandedPreset(_ id: String) {
+        feature.applyPreset(id: id)
+        if expandedPresetID == id {
+            expandedPresetID = nil
+        }
+        savedFlashPresetID = id
+        savedFlashToken += 1
+    }
+
     private func saveCurrentSettingsAsPreset() {
         let id = feature.addPreset(name: uniqueNewPresetName())
         expandedPresetID = id
@@ -1023,11 +1047,13 @@ private struct PresetLibraryRow: View {
     @ObservedObject var feature: UmbrellaBrightnessFeature
     var presetID: String
     var isExpanded: Bool
+    var showsSavedConfirmation: Bool
     var wantsNameFocus: Bool
     var selectAllName: Bool
     var onToggle: () -> Void
     var onApply: () -> Void
     var onDelete: () -> Void
+    var onSave: () -> Void
     var onConsumeNameFocus: () -> Void
     var onPresetsChanged: () -> Void
 
@@ -1039,22 +1065,26 @@ private struct PresetLibraryRow: View {
         presetID: String,
         initialName: String,
         isExpanded: Bool,
+        showsSavedConfirmation: Bool,
         wantsNameFocus: Bool,
         selectAllName: Bool,
         onToggle: @escaping () -> Void,
         onApply: @escaping () -> Void,
         onDelete: @escaping () -> Void,
+        onSave: @escaping () -> Void,
         onConsumeNameFocus: @escaping () -> Void,
         onPresetsChanged: @escaping () -> Void
     ) {
         _feature = ObservedObject(wrappedValue: feature)
         self.presetID = presetID
         self.isExpanded = isExpanded
+        self.showsSavedConfirmation = showsSavedConfirmation
         self.wantsNameFocus = wantsNameFocus
         self.selectAllName = selectAllName
         self.onToggle = onToggle
         self.onApply = onApply
         self.onDelete = onDelete
+        self.onSave = onSave
         self.onConsumeNameFocus = onConsumeNameFocus
         self.onPresetsChanged = onPresetsChanged
         _nameDraft = State(initialValue: initialName)
@@ -1088,6 +1118,14 @@ private struct PresetLibraryRow: View {
                     Text(preset.name)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if showsSavedConfirmation {
+                        Text("Saved")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(BrightnessChrome.secondaryText)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(1)
+                            .accessibilityHidden(true)
+                    }
                     badges(preset)
                     Spacer(minLength: 4)
                     Text(valueText(preset))
@@ -1101,7 +1139,7 @@ private struct PresetLibraryRow: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel(isExpanded ? "Collapse \(preset.name)" : applyAccessibilityLabel(preset))
+            .accessibilityLabel(headerAccessibilityLabel(preset))
             .accessibilityValue(valueText(preset))
             .accessibilityHint(
                 isExpanded
@@ -1134,6 +1172,12 @@ private struct PresetLibraryRow: View {
         } else {
             onApply()
         }
+    }
+
+    private func headerAccessibilityLabel(_ preset: UmbrellaSunPreset) -> String {
+        let base = isExpanded ? "Collapse \(preset.name)" : applyAccessibilityLabel(preset)
+        guard showsSavedConfirmation else { return base }
+        return "\(base), Saved"
     }
 
     private func applyAccessibilityLabel(_ preset: UmbrellaSunPreset) -> String {
@@ -1305,11 +1349,12 @@ private struct PresetLibraryRow: View {
                 .accessibilityLabel("Delete \(preset.name)")
                 Spacer(minLength: 8)
                 Button("Save") {
-                    feature.applyPreset(id: preset.id)
+                    commitName(nameDraft)
+                    onSave()
                 }
                 .buttonStyle(MockChromeButtonStyle(kind: .primary))
                 .accessibilityLabel("Save \(preset.name)")
-                .accessibilityHint("Applies this preset to the display")
+                .accessibilityHint("Applies this preset to the display and closes the editor")
             }
             .padding(.top, 10)
         }

@@ -13,6 +13,10 @@ struct MenuBarControlsView: View {
     var onRestart: () -> Void
     var onQuit: () -> Void
     var onRunCapture: (@escaping () -> Void) -> Void
+    /// When the stacked rows are taller than the screen, the menu scrolls instead of clipping.
+    var scrolls = false
+    /// Reports the hugged height of the menu column so the panel can match it.
+    var onContentHeightChange: ((CGFloat) -> Void)? = nil
 
     @State private var focusedControl: MenuBarControlTarget = .screenBrightness
     @State private var scrollCarry: CGFloat = 0
@@ -21,30 +25,20 @@ struct MenuBarControlsView: View {
     @State private var isAdjustingWarmth = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                menuSections
-                    .padding(14)
+        Group {
+            if scrolls {
+                ScrollView {
+                    measuredColumn
+                }
+                .contentMargins(.top, 0, for: .scrollContent)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                // Hug the rows. A flexible scroll view inside a fixed-height panel is the empty band.
+                measuredColumn
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                CaptureMenuRow(title: "Settings…", shortcut: "", systemImage: "gearshape") {
-                    onOpenSettings()
-                }
-                CaptureMenuRow(title: "Restart Suncut", shortcut: "") {
-                    onRestart()
-                }
-                CaptureMenuRow(title: "Quit Suncut", shortcut: "") {
-                    onQuit()
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
         .background(
             MenuBarControlsEventCatcher { event in
@@ -53,9 +47,51 @@ struct MenuBarControlsView: View {
         )
     }
 
+    /// Height is the stacked rows, including when this view is scroll content.
+    private var measuredColumn: some View {
+        menuColumn
+            .background(MenuBarScrollTopInsetReset())
+            .background(MenuBarContentHeightReader())
+            .onPreferenceChange(MenuBarContentHeightKey.self) { height in
+                guard height > 1 else { return }
+                onContentHeightChange?(height)
+            }
+    }
+
+    private var menuColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CaptureMenuRow(title: "Settings", shortcut: "") {
+                onOpenSettings()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+
+            Divider()
+
+            menuSections
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                CaptureMenuRow(title: "Restart Suncut", shortcut: "") {
+                    onRestart()
+                }
+                CaptureMenuRow(title: "Quit Suncut", shortcut: "") {
+                    onQuit()
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 2)
+            .padding(.bottom, 6)
+        }
+    }
+
     private var menuSections: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader("Screen", systemImage: "sun.max.fill") {
+            sectionHeader("Brightness", systemImage: "sun.max.fill") {
                 Toggle(
                     "Automatic",
                     isOn: Binding(
@@ -147,7 +183,7 @@ struct MenuBarControlsView: View {
 
             Divider()
 
-            sectionHeader("Snipping Tool", systemImage: "record.circle") {
+            sectionHeader("Snipping Tool", systemImage: "scissors") {
                 CaptureMenuRow(title: "Snip area", shortcut: AppSettings.shared.snipAreaHotKey.displayName) {
                     onRunCapture(snipFeature.takeAreaSnip)
                 }
@@ -439,6 +475,69 @@ struct MenuBarControlsView: View {
             brightnessFeature.setColorTemp(
                 brightnessFeature.colorTemp + (total * UmbrellaBrightnessFeature.colorTempStep)
             )
+        }
+    }
+}
+
+private struct MenuBarContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Reads the menu column's hugged height. A background reader does not add space.
+private struct MenuBarContentHeightReader: View {
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: MenuBarContentHeightKey.self, value: proxy.size.height)
+        }
+    }
+}
+
+/// The menu sits in a titled panel. AppKit's scroll view then insets its content
+/// by the title bar, which leaves a blank band above the first row. Drop that inset.
+private struct MenuBarScrollTopInsetReset: NSViewRepresentable {
+    func makeNSView(context: Context) -> MenuBarScrollTopInsetResetView {
+        MenuBarScrollTopInsetResetView()
+    }
+
+    func updateNSView(_ nsView: MenuBarScrollTopInsetResetView, context: Context) {
+        nsView.clearTopContentInset()
+    }
+}
+
+private final class MenuBarScrollTopInsetResetView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        clearTopContentInset()
+    }
+
+    override func layout() {
+        super.layout()
+        clearTopContentInset()
+    }
+
+    func clearTopContentInset() {
+        var ancestor = superview
+        while let current = ancestor {
+            if let scroll = current as? NSScrollView {
+                if scroll.automaticallyAdjustsContentInsets {
+                    scroll.automaticallyAdjustsContentInsets = false
+                }
+                if scroll.contentInsets.top != 0 {
+                    var insets = scroll.contentInsets
+                    insets.top = 0
+                    scroll.contentInsets = insets
+                }
+                return
+            }
+            ancestor = current.superview
         }
     }
 }

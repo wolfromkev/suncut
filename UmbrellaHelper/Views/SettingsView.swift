@@ -87,7 +87,7 @@ struct SettingsView: View {
             HStack(spacing: 0) {
                 settingsTabButton("Keybindings", tab: .keybindings)
                 settingsTabButton("Brightness", tab: .brightness)
-                settingsTabButton("SimpleSnip", tab: .simpleSnip)
+                settingsTabButton("Snipping Tool", tab: .simpleSnip)
             }
             .padding(2)
             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -158,7 +158,7 @@ struct SettingsView: View {
                     }
                 }
 
-                sectionCard("SimpleSnip") {
+                sectionCard("Snipping Tool") {
                     editableBindingRow("Snip area", target: .snipArea)
                     editableBindingRow("Snip window", target: .snipWindow)
                     editableBindingRow("Snip full screen", target: .snipFullScreen)
@@ -166,11 +166,11 @@ struct SettingsView: View {
                     editableBindingRow("Copy text from area", target: .snipText)
                 }
 
-                sectionCard("SunScreen") {
+                sectionCard("Brightness") {
                     editableBindingRow("Brightness down", target: .brightnessDown)
                     editableBindingRow("Brightness up", target: .brightnessUp)
-                    editableBindingRow("Warmer", target: .warmthUp)
-                    editableBindingRow("Cooler", target: .warmthDown)
+                    editableBindingRow("Warmth up", target: .warmthUp)
+                    editableBindingRow("Warmth down", target: .warmthDown)
 
                     Divider()
 
@@ -328,12 +328,12 @@ struct SettingsView: View {
             ("Copy text", snipTextHotKey),
             ("Brightness down", brightnessDownHotKey),
             ("Brightness up", brightnessUpHotKey),
-            ("Warmer", warmthUpHotKey),
-            ("Cooler", warmthDownHotKey),
+            ("Warmth up", warmthUpHotKey),
+            ("Warmth down", warmthDownHotKey),
         ]
         all += appModel.brightnessFeature.presets.compactMap { preset in
             guard let binding = sunPresetHotKeys[preset.id] else { return nil }
-            return ("SunScreen: \(preset.name)", binding)
+            return ("Brightness: \(preset.name)", binding)
         }
 
         var map: [String: [String]] = [:]
