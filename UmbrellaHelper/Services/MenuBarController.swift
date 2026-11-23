@@ -13,8 +13,10 @@ extension Notification.Name {
 @MainActor
 final class MenuBarController: NSObject, NSWindowDelegate {
     private static let panelSizeKey = "umbrella.menuPanelSize"
-    private static let defaultPanelSize = NSSize(width: 280, height: 500)
-    private static let minimumPanelSize = NSSize(width: 260, height: 280)
+    private static let defaultPanelWidth: CGFloat = 280
+    private static let minimumPanelWidth: CGFloat = 260
+    /// Low enough that a saved or default height cannot force an empty band under the rows.
+    private static let minimumPanelHeight: CGFloat = 120
 
     private var statusItem: NSStatusItem?
     private weak var appModel: AppModel?
@@ -29,6 +31,10 @@ final class MenuBarController: NSObject, NSWindowDelegate {
     private var resignActiveObserver: NSObjectProtocol?
     /// While a snip overlay or in-flight capture is up, keep the menu from ordering itself in front.
     private var captureChromeActive = false
+    /// The open menu scrolls only when its rows are taller than the screen.
+    private var menuScrolls = false
+    private var lastReportedContentHeight: CGFloat = 0
+    private var isFittingPanel = false
 
     func start(appModel: AppModel) {
         self.appModel = appModel
@@ -182,20 +188,14 @@ final class MenuBarController: NSObject, NSWindowDelegate {
             return
         }
 
+        menuScrolls = false
+        lastReportedContentHeight = 0
         if let hosting = panel.contentViewController as? NSHostingController<MenuBarControlsView> {
-            hosting.rootView = makeControlsView(appModel: appModel)
+            hosting.rootView = makeControlsView(appModel: appModel, scrolls: false, reportHeight: true)
         }
 
         let screen = button.window?.screen ?? NSScreen.main
-        let size = clampedPanelSize(savedPanelSize() ?? Self.defaultPanelSize, on: screen)
-        if let screen {
-            let visible = screen.visibleFrame.insetBy(dx: 8, dy: 8)
-            panel.contentMaxSize = NSSize(width: visible.width, height: visible.height)
-        }
-        var frame = panel.frame
-        frame.size = size
-        panel.setFrame(frame, display: false)
-        position(panel, under: button)
+        applyFittedPanelSize(screen: screen)
         panel.alphaValue = 1
         panel.ignoresMouseEvents = false
         panel.level = .popUpMenu
@@ -236,7 +236,7 @@ final class MenuBarController: NSObject, NSWindowDelegate {
         captureChromeActive = false
     }
 
-    private func makeControlsView(appModel: AppModel) -> MenuBarControlsView {
+    private func makeControlsView(appModel: AppModel, scrolls: Bool, reportHeight: Bool) -> MenuBarControlsView {
         MenuBarControlsView(
             brightnessFeature: appModel.brightnessFeature,
             snipFeature: appModel.simpleSnipFeature,
@@ -255,7 +255,11 @@ final class MenuBarController: NSObject, NSWindowDelegate {
             onRunCapture: { [weak self] action in
                 self?.hidePopoverImmediately()
                 action()
-            }
+            },
+            scrolls: scrolls,
+            onContentHeightChange: reportHeight ? { [weak self] height in
+                self?.refitPanelToContent(reportedHeight: height)
+            } : nil
         )
     }
 
@@ -264,32 +268,90 @@ final class MenuBarController: NSObject, NSWindowDelegate {
             return panel
         }
 
-        let hosting = NSHostingController(rootView: makeControlsView(appModel: appModel))
+        let hosting = NSHostingController(rootView: makeControlsView(appModel: appModel, scrolls: false, reportHeight: true))
         hosting.sizingOptions = []
         // The hidden title bar still reserves a safe area, which shows up as empty space above the menu.
         hosting.safeAreaRegions = []
 
         let panel = MenuBarPanel(contentViewController: hosting)
-        panel.contentMinSize = Self.minimumPanelSize
+        panel.contentMinSize = NSSize(width: Self.minimumPanelWidth, height: Self.minimumPanelHeight)
         panel.delegate = self
         self.panel = panel
         return panel
     }
 
-    private func savedPanelSize() -> NSSize? {
+    /// Saved width only. A saved height is what left the empty band above Restart.
+    private func savedPanelWidth() -> CGFloat? {
         guard let raw = UserDefaults.standard.string(forKey: Self.panelSizeKey) else { return nil }
         let size = NSSizeFromString(raw)
-        guard size.width >= Self.minimumPanelSize.width, size.height >= Self.minimumPanelSize.height else { return nil }
-        return size
+        guard size.width >= Self.minimumPanelWidth else { return nil }
+        return size.width
     }
 
-    private func clampedPanelSize(_ size: NSSize, on screen: NSScreen?) -> NSSize {
-        let visible = (screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600))
+    private func visibleBounds(on screen: NSScreen?) -> CGRect {
+        (screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600))
             .insetBy(dx: 8, dy: 8)
-        return NSSize(
-            width: min(max(size.width, Self.minimumPanelSize.width), visible.width),
-            height: min(max(size.height, Self.minimumPanelSize.height), visible.height)
+    }
+
+    private func probeContentHeight(appModel: AppModel, width: CGFloat) -> CGFloat {
+        let probe = NSHostingView(
+            rootView: makeControlsView(appModel: appModel, scrolls: false, reportHeight: false)
         )
+        probe.safeAreaRegions = []
+        let fitted = probe.sizeThatFits(CGSize(width: width, height: 10_000))
+        return fitted.height
+    }
+
+    private func refitPanelToContent(reportedHeight: CGFloat) {
+        guard panel?.wantsVisible == true else { return }
+        guard reportedHeight > 1, reportedHeight < 9_000 else { return }
+        guard abs(reportedHeight - lastReportedContentHeight) > 0.5 else { return }
+        lastReportedContentHeight = reportedHeight
+        applyFittedPanelSize(fittedHeight: reportedHeight, screen: nil)
+    }
+
+    /// Size the panel to the menu rows so a fixed window height cannot open a gap above Restart.
+    private func applyFittedPanelSize(screen explicitScreen: NSScreen?) {
+        guard let appModel else { return }
+        let screen = explicitScreen ?? statusItem?.button?.window?.screen ?? NSScreen.main
+        let visible = visibleBounds(on: screen)
+        let width = min(max(savedPanelWidth() ?? Self.defaultPanelWidth, Self.minimumPanelWidth), visible.width)
+        let fitted = probeContentHeight(appModel: appModel, width: width)
+        guard fitted > 1, fitted < 9_000 else { return }
+        lastReportedContentHeight = fitted
+        applyFittedPanelSize(fittedHeight: fitted, screen: screen)
+    }
+
+    private func applyFittedPanelSize(fittedHeight: CGFloat, screen explicitScreen: NSScreen?) {
+        guard let panel, let appModel, !isFittingPanel else { return }
+        isFittingPanel = true
+        defer { isFittingPanel = false }
+
+        let button = statusItem?.button
+        let screen = explicitScreen ?? button?.window?.screen ?? NSScreen.main
+        let visible = visibleBounds(on: screen)
+        let width = min(max(savedPanelWidth() ?? panel.frame.width, Self.minimumPanelWidth), visible.width)
+        let scrolls = fittedHeight > visible.height + 1
+        if scrolls != menuScrolls, let hosting = panel.contentViewController as? NSHostingController<MenuBarControlsView> {
+            menuScrolls = scrolls
+            hosting.rootView = makeControlsView(appModel: appModel, scrolls: scrolls, reportHeight: true)
+        }
+
+        let height = min(max(ceil(fittedHeight), Self.minimumPanelHeight), visible.height)
+        panel.contentMinSize = NSSize(
+            width: Self.minimumPanelWidth,
+            height: scrolls ? Self.minimumPanelHeight : height
+        )
+        panel.contentMaxSize = NSSize(
+            width: visible.width,
+            height: scrolls ? visible.height : height
+        )
+        var frame = panel.frame
+        frame.size = NSSize(width: width, height: height)
+        panel.setFrame(frame, display: panel.wantsVisible)
+        if let button {
+            position(panel, under: button)
+        }
     }
 
     private func position(_ panel: NSPanel, under button: NSStatusBarButton) {
@@ -311,6 +373,11 @@ final class MenuBarController: NSObject, NSWindowDelegate {
     func windowDidEndLiveResize(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         UserDefaults.standard.set(NSStringFromSize(window.frame.size), forKey: Self.panelSizeKey)
+        guard let appModel, let panel, window === panel else { return }
+        let fitted = probeContentHeight(appModel: appModel, width: window.frame.width)
+        guard fitted > 1 else { return }
+        lastReportedContentHeight = 0
+        refitPanelToContent(reportedHeight: fitted)
     }
 
     private func startOutsideClickMonitoring() {
@@ -412,6 +479,8 @@ private final class MenuBarPanel: NSPanel {
             contentView.wantsLayer = true
             contentView.layer?.cornerRadius = 12
             contentView.layer?.masksToBounds = true
+            // Same fill as the menu, so a one-point size mismatch is not a transparent strip.
+            contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         }
     }
 
