@@ -13,6 +13,10 @@ struct MenuBarControlsView: View {
     var onRestart: () -> Void
     var onQuit: () -> Void
     var onRunCapture: (@escaping () -> Void) -> Void
+    /// When the stacked rows are taller than the screen, the menu scrolls instead of clipping.
+    var scrolls = false
+    /// Reports the hugged height of the menu column so the panel can match it.
+    var onContentHeightChange: ((CGFloat) -> Void)? = nil
 
     @State private var focusedControl: MenuBarControlTarget = .screenBrightness
     @State private var scrollCarry: CGFloat = 0
@@ -21,23 +25,57 @@ struct MenuBarControlsView: View {
     @State private var isAdjustingWarmth = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                menuSections
-                    .padding(.top, 8)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 14)
-                    .background(MenuBarScrollTopInsetReset())
+        Group {
+            if scrolls {
+                ScrollView {
+                    measuredColumn
+                }
+                .contentMargins(.top, 0, for: .scrollContent)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                // Hug the rows. A flexible scroll view inside a fixed-height panel is the empty band.
+                measuredColumn
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
-            .contentMargins(.top, 0, for: .scrollContent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .background(
+            MenuBarControlsEventCatcher { event in
+                handleControlEvent(event)
+            }
+        )
+    }
+
+    /// Height is the stacked rows, including when this view is scroll content.
+    private var measuredColumn: some View {
+        menuColumn
+            .background(MenuBarScrollTopInsetReset())
+            .background(MenuBarContentHeightReader())
+            .onPreferenceChange(MenuBarContentHeightKey.self) { height in
+                guard height > 1 else { return }
+                onContentHeightChange?(height)
+            }
+    }
+
+    private var menuColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CaptureMenuRow(title: "Settings", shortcut: "") {
+                onOpenSettings()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+
+            Divider()
+
+            menuSections
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
 
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
-                CaptureMenuRow(title: "Settings", shortcut: "") {
-                    onOpenSettings()
-                }
                 CaptureMenuRow(title: "Restart Suncut", shortcut: "") {
                     onRestart()
                 }
@@ -46,15 +84,9 @@ struct MenuBarControlsView: View {
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.top, 2)
+            .padding(.bottom, 6)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .background(
-            MenuBarControlsEventCatcher { event in
-                handleControlEvent(event)
-            }
-        )
     }
 
     private var menuSections: some View {
@@ -447,8 +479,25 @@ struct MenuBarControlsView: View {
     }
 }
 
+private struct MenuBarContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Reads the menu column's hugged height. A background reader does not add space.
+private struct MenuBarContentHeightReader: View {
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: MenuBarContentHeightKey.self, value: proxy.size.height)
+        }
+    }
+}
+
 /// The menu sits in a titled panel. AppKit's scroll view then insets its content
-/// by the title bar, which leaves a blank band above Brightness. Drop that inset.
+/// by the title bar, which leaves a blank band above the first row. Drop that inset.
 private struct MenuBarScrollTopInsetReset: NSViewRepresentable {
     func makeNSView(context: Context) -> MenuBarScrollTopInsetResetView {
         MenuBarScrollTopInsetResetView()
