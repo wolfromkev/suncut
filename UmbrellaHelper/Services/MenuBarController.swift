@@ -293,13 +293,17 @@ final class MenuBarController: NSObject, NSWindowDelegate {
             .insetBy(dx: 8, dy: 8)
     }
 
+    /// Hug the rows at `width`. This SDK has `fittingSize` on `NSView`, not `sizeThatFits` on `NSHostingView`.
     private func probeContentHeight(appModel: AppModel, width: CGFloat) -> CGFloat {
         let probe = NSHostingView(
             rootView: makeControlsView(appModel: appModel, scrolls: false, reportHeight: false)
         )
         probe.safeAreaRegions = []
-        let fitted = probe.sizeThatFits(CGSize(width: width, height: 10_000))
-        return fitted.height
+        probe.translatesAutoresizingMaskIntoConstraints = false
+        probe.frame = NSRect(x: 0, y: 0, width: width, height: 0)
+        probe.widthAnchor.constraint(equalToConstant: width).isActive = true
+        probe.layoutSubtreeIfNeeded()
+        return probe.fittingSize.height
     }
 
     private func refitPanelToContent(reportedHeight: CGFloat) {
